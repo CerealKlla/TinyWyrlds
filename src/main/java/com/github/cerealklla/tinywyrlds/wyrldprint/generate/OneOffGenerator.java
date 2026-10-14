@@ -3,7 +3,9 @@ package com.github.cerealklla.tinywyrlds.wyrldprint.generate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import com.github.cerealklla.tinywyrlds.instance.WyrldInstanceRecord;
@@ -72,9 +74,11 @@ public final class OneOffGenerator {
 
         List<Placement> placements = new ArrayList<>();
         List<Frontier> openFrontiers = new ArrayList<>();
+        Map<LocalPos, Boolean> occupied = new HashMap<>();
 
         Placement first = new Placement(rooms.get(random.nextInt(rooms.size())), Rotation.NONE, 0, 0, 0);
         placements.add(first);
+        occupied.putAll(cellStates(first));
         addFrontiers(openFrontiers, first, null);
         int roomsPlaced = 1;
 
@@ -86,15 +90,16 @@ public final class OneOffGenerator {
 
             Placement placed = null;
             if (!connectors.isEmpty() && random.nextDouble() < PREFER_CONNECTOR_CHANCE) {
-                placed = tryPlace(frontier, shuffled(connectors, random), placements, random);
+                placed = tryPlace(frontier, shuffled(connectors, random), occupied, random);
             }
             if (placed == null) {
-                placed = tryPlace(frontier, shuffled(rooms, random), placements, random);
+                placed = tryPlace(frontier, shuffled(rooms, random), occupied, random);
             }
             if (placed == null) {
                 continue; // dead end -- the point stays a real, closed, unused door/trapdoor.
             }
             placements.add(placed);
+            occupied.putAll(cellStates(placed));
             addFrontiers(openFrontiers, placed, frontier);
             if (placed.record().type() == WyrldPrintType.ROOM) {
                 roomsPlaced++;
@@ -107,10 +112,26 @@ public final class OneOffGenerator {
         return stamp(server, placements);
     }
 
-    /** Tries every candidate (in the given, already-shuffled order) and every rotation, returning
-     *  the first placement that both matches {@code frontier} and doesn't collide with anything
-     *  already placed. */
-    private static Placement tryPlace(Frontier frontier, List<WyrldPrintRecord> candidates, List<Placement> existing, RandomSource random) {
+    /**
+     * Tries every candidate (in the given, already-shuffled order) and every rotation, returning
+     * the first placement that both matches {@code frontier} and doesn't collide with anything
+     * already placed.
+     *
+     * <p><b>Collision rule, and why it's air/solid-aware, not a flat "no shared cells" rule</b>:
+     * two genuinely joined pieces' adjoining walls are *expected* to coincide exactly along their
+     * whole shared plane (not just at the one connector cell) -- e.g. two rooms sharing a common
+     * wall with one doorway between them, where every other cell along that wall is solid on both
+     * sides. A plain "any shared cell = collision" check (tried first, see decisions.md) rejected
+     * every real join because of this, since only the 1-2 door cells were ever exempted, leaving
+     * the rest of the shared wall plane to false-flag. A plain bounding-box check (tried before
+     * that) had the opposite problem: shrinking it enough to stop flagging the shared seam also
+     * let real overlaps through for thin pieces. The actual invariant that matters for walkability
+     * is simpler than either: a position is only a genuine problem if one piece wants it *solid*
+     * and the other wants it *air* -- that's the one case that can silently block a passage or
+     * erase content depending on stamp order. Solid-vs-solid (a shared wall) and air-vs-air (two
+     * open spaces overlapping) are both harmless and explicitly allowed.
+     */
+    private static Placement tryPlace(Frontier frontier, List<WyrldPrintRecord> candidates, Map<LocalPos, Boolean> occupied, RandomSource random) {
         for (WyrldPrintRecord candidate : candidates) {
             List<WyrldPrintPoint> ownPoints = shuffled(candidate.points().stream().filter(p -> p.wall() == frontier.wall()).toList(), random);
             for (WyrldPrintPoint point : ownPoints) {
@@ -128,7 +149,7 @@ public final class OneOffGenerator {
                     int originLateral = frontier.worldLateral() - rotatedFL[1];
                     int originY = frontier.worldY() - point.relY();
                     Placement candidatePlacement = new Placement(candidate, rotation, originForward, originLateral, originY);
-                    if (!collidesWithAny(candidatePlacement, existing)) {
+                    if (!collides(candidatePlacement, occupied)) {
                         return candidatePlacement;
                     }
                 }
@@ -137,38 +158,26 @@ public final class OneOffGenerator {
         return null;
     }
 
-    /**
-     * Two genuinely connected pieces always share exactly one cell's worth of seam along
-     * whichever axis their matched connector point sits on -- that cell is each piece's own door/
-     * trapdoor, counted as part of both pieces' own bounding box (see {@link #localBounds}), so a
-     * plain AABB overlap test would always flag a valid connection as a false collision. Shrinking
-     * each box by 1 on every horizontal/vertical side before comparing absorbs exactly that
-     * expected seam, while still catching any real multi-cell interior overlap.
-     */
-    private static boolean collidesWithAny(Placement placement, List<Placement> existing) {
-        int[] box = shrunkForCollision(worldBoundingBox(placement));
-        for (Placement other : existing) {
-            int[] otherBox = shrunkForCollision(worldBoundingBox(other));
-            boolean overlapForward = box[0] < otherBox[1] && otherBox[0] < box[1];
-            boolean overlapLateral = box[2] < otherBox[3] && otherBox[2] < box[3];
-            boolean overlapY = box[4] < otherBox[5] && otherBox[4] < box[5];
-            if (overlapForward && overlapLateral && overlapY) {
+    private static boolean collides(Placement placement, Map<LocalPos, Boolean> occupied) {
+        for (Map.Entry<LocalPos, Boolean> entry : cellStates(placement).entrySet()) {
+            Boolean existing = occupied.get(entry.getKey());
+            if (existing != null && !existing.equals(entry.getValue())) {
                 return true;
             }
         }
         return false;
     }
 
-    private static int[] shrunkForCollision(int[] box) {
-        int[] shrunk = box.clone();
-        for (int axis = 0; axis < 3; axis++) {
-            int lo = axis * 2, hi = axis * 2 + 1;
-            if (shrunk[lo] + 1 < shrunk[hi] - 1) {
-                shrunk[lo] += 1;
-                shrunk[hi] -= 1;
-            }
+    /** Every cell this placement would occupy, mapped to whether it's solid (not air). */
+    private static Map<LocalPos, Boolean> cellStates(Placement placement) {
+        Map<LocalPos, Boolean> result = new HashMap<>(placement.record().cells().size() * 2);
+        for (WyrldPrintCell cell : placement.record().cells()) {
+            int[] rotatedFL = rotateForwardLateral(cell.relForward(), cell.relLateral(), placement.rotation());
+            LocalPos pos = new LocalPos(placement.originForward() + rotatedFL[0], placement.originLateral() + rotatedFL[1],
+                    placement.originY() + cell.relY());
+            result.put(pos, !cell.state().isAir());
         }
-        return shrunk;
+        return result;
     }
 
     /** {@code [minForward, maxForwardExclusive, minLateral, maxLateralExclusive, minY, maxYExclusive]} in world space. */
@@ -289,5 +298,10 @@ public final class OneOffGenerator {
     }
 
     private record Frontier(int worldForward, int worldLateral, int worldY, boolean wall, Optional<Direction> facing) {
+    }
+
+    /** A single cell position in the shared local (forward, lateral, Y) planning space every
+     *  placement is computed in -- not yet a real {@code BlockPos}, see {@code stamp}. */
+    private record LocalPos(int forward, int lateral, int y) {
     }
 }
