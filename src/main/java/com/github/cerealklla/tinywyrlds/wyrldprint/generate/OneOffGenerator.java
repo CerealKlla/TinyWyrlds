@@ -33,8 +33,12 @@ import net.minecraft.world.level.block.state.BlockState;
  * once rotated -- see that field's own doc for the outward-facing convention every sample piece
  * follows), tries all 4 {@link Rotation}s until one lines the two points up with no bounding-box
  * overlap against anything already placed, and stamps it in. Keeps going until the target room
- * count is reached or every frontier dead-ends. A CONNECTOR piece is preferred between two rooms
- * (65% of the time, when any are saved) purely for variety; direct room-to-room is also valid.
+ * count is reached or every frontier dead-ends ({@code minRooms}/{@code maxRooms} count only ROOM
+ * pieces -- a CONNECTOR placed in between is extra, not counted toward that target). A CONNECTOR
+ * is preferred between two rooms (65% of the time, when any are saved) purely for variety, with
+ * direct room-to-room also valid -- but a connector's own frontier is <b>never</b> extended with
+ * another connector (explicit user spec, 2026-10-14: "connectors are meant to sit between rooms"),
+ * only with a ROOM, so two connectors can never chain back to back.
  *
  * <p>Everything is planned in a local (forward, lateral, Y) space first -- no real block is
  * touched until the whole layout is decided -- then translated once into a freshly reserved Wyrld
@@ -59,6 +63,32 @@ public final class OneOffGenerator {
 
     /** @return the created Wyrld instance, or {@code null} if no ROOM WyrldPrints are saved at all. */
     public static WyrldInstanceRecord generate(MinecraftServer server, int minRooms, int maxRooms) {
+        PlanResult plan = planPlacements(minRooms, maxRooms);
+        if (plan == null) {
+            return null;
+        }
+        com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
+                "OneOffGenerator: placed {} piece(s) ({} room(s), target {}) in {} attempt(s)",
+                plan.placements().size(), plan.roomsPlaced(), plan.targetRooms(), plan.attempts());
+        return stamp(server, plan.placements());
+    }
+
+    /** Debug-only (see {@code DebugCommands}'s {@code selectiontest}): runs the exact same planning
+     *  logic as {@link #generate} without ever touching a real level/Wyrld instance -- {@link
+     *  #stamp} is the only part of {@link #generate} that needs one. Lets a selection-frequency
+     *  diagnostic run hundreds of trials cheaply, added 2026-10-14 after a real report ("my room
+     *  hasn't been selected once") that turned out to need actual counts, not assumptions, to
+     *  investigate. @return each placed piece as {@code "<type>:<name>"}, or an empty list if no
+     *  ROOM WyrldPrints are saved at all. */
+    public static List<String> planOnceForDebug(int minRooms, int maxRooms) {
+        PlanResult plan = planPlacements(minRooms, maxRooms);
+        if (plan == null) {
+            return List.of();
+        }
+        return plan.placements().stream().map(p -> p.record().type() + ":" + p.record().name()).toList();
+    }
+
+    private static PlanResult planPlacements(int minRooms, int maxRooms) {
         List<WyrldPrintRecord> rooms = WyrldPrintStorage.get().listAll().stream()
                 .filter(r -> r.type() == WyrldPrintType.ROOM).toList();
         List<WyrldPrintRecord> connectors = WyrldPrintStorage.get().listAll().stream()
@@ -89,7 +119,11 @@ public final class OneOffGenerator {
             Frontier frontier = openFrontiers.remove(random.nextInt(openFrontiers.size()));
 
             Placement placed = null;
-            if (!connectors.isEmpty() && random.nextDouble() < PREFER_CONNECTOR_CHANCE) {
+            // Connectors must always sit between two rooms, never chain to another connector --
+            // explicit user spec, 2026-10-14. A frontier whose own piece IS a connector only ever
+            // tries ROOM candidates; only a room's own frontier gets the connector preference.
+            boolean frontierOwnedByRoom = frontier.ownerType() == WyrldPrintType.ROOM;
+            if (frontierOwnedByRoom && !connectors.isEmpty() && random.nextDouble() < PREFER_CONNECTOR_CHANCE) {
                 placed = tryPlace(frontier, shuffled(connectors, random), occupied, random);
             }
             if (placed == null) {
@@ -106,10 +140,10 @@ public final class OneOffGenerator {
             }
         }
 
-        com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
-                "OneOffGenerator: placed {} piece(s) ({} room(s), target {}) in {} attempt(s)",
-                placements.size(), roomsPlaced, targetRooms, attempts);
-        return stamp(server, placements);
+        return new PlanResult(placements, roomsPlaced, targetRooms, attempts);
+    }
+
+    private record PlanResult(List<Placement> placements, int roomsPlaced, int targetRooms, int attempts) {
     }
 
     /**
@@ -239,7 +273,7 @@ public final class OneOffGenerator {
                 continue; // this is the point that was just used to attach -- not a new frontier.
             }
             Optional<Direction> worldFacing = point.facing().map(f -> placement.rotation().rotate(f));
-            frontiers.add(new Frontier(worldForward, worldLateral, worldY, point.wall(), worldFacing));
+            frontiers.add(new Frontier(worldForward, worldLateral, worldY, point.wall(), worldFacing, placement.record().type()));
         }
     }
 
@@ -297,7 +331,9 @@ public final class OneOffGenerator {
     private record Placement(WyrldPrintRecord record, Rotation rotation, int originForward, int originLateral, int originY) {
     }
 
-    private record Frontier(int worldForward, int worldLateral, int worldY, boolean wall, Optional<Direction> facing) {
+    /** {@code ownerType} is the type of the piece this point belongs to -- used to enforce
+     *  connectors always sitting between two rooms (see the main planning loop). */
+    private record Frontier(int worldForward, int worldLateral, int worldY, boolean wall, Optional<Direction> facing, WyrldPrintType ownerType) {
     }
 
     /** A single cell position in the shared local (forward, lateral, Y) planning space every

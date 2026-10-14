@@ -67,7 +67,15 @@ public final class DebugCommands {
                                 .then(Commands.argument("maxRooms", IntegerArgumentType.integer(1))
                                         .executes(ctx -> generateOneOff(ctx.getSource(),
                                                 IntegerArgumentType.getInteger(ctx, "minRooms"),
-                                                IntegerArgumentType.getInteger(ctx, "maxRooms")))))));
+                                                IntegerArgumentType.getInteger(ctx, "maxRooms"))))))
+                .then(Commands.literal("selectiontest")
+                        .then(Commands.argument("trials", IntegerArgumentType.integer(1))
+                                .then(Commands.argument("minRooms", IntegerArgumentType.integer(1))
+                                        .then(Commands.argument("maxRooms", IntegerArgumentType.integer(1))
+                                                .executes(ctx -> selectionTest(ctx.getSource(),
+                                                        IntegerArgumentType.getInteger(ctx, "trials"),
+                                                        IntegerArgumentType.getInteger(ctx, "minRooms"),
+                                                        IntegerArgumentType.getInteger(ctx, "maxRooms"))))))));
     }
 
     private static int saveWyrldPrint(CommandSourceStack source, String name, String typeArg) {
@@ -190,5 +198,32 @@ public final class DebugCommands {
         boolean left = WyrldManager.leave(player);
         source.sendSuccess(() -> Component.literal(left ? "Left the Wyrld." : "You're not inside a Wyrld."), false);
         return 1;
+    }
+
+    /** Debug-only: runs {@code OneOffGenerator}'s planning logic {@code trials} times with no real
+     *  Wyrld creation (see {@code OneOffGenerator.planOnceForDebug}'s own doc) and tallies how many
+     *  times each saved piece actually got placed -- added 2026-10-14 after a real report ("my room
+     *  hasn't been selected once") to get hard counts instead of guessing from a handful of manual
+     *  {@code generate} calls. Full per-piece counts go to the server log (can be long); chat gets
+     *  a short summary. */
+    private static int selectionTest(CommandSourceStack source, int trials, int minRooms, int maxRooms) {
+        java.util.Map<String, Integer> counts = new java.util.TreeMap<>();
+        int emptyPlans = 0;
+        for (int i = 0; i < trials; i++) {
+            var names = OneOffGenerator.planOnceForDebug(minRooms, maxRooms);
+            if (names.isEmpty()) {
+                emptyPlans++;
+                continue;
+            }
+            for (String name : names) {
+                counts.merge(name, 1, Integer::sum);
+            }
+        }
+        com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info("selectiontest: {} trial(s), {} empty plan(s) (no ROOM WyrldPrints saved)", trials, emptyPlans);
+        counts.forEach((name, count) -> com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info("selectiontest:   {} -> placed in {} trial(s)", name, count));
+        int finalEmptyPlans = emptyPlans;
+        source.sendSuccess(() -> Component.literal("Ran " + trials + " trial(s) (" + finalEmptyPlans
+                + " empty) across " + counts.size() + " distinct piece(s) -- see server log for full per-piece counts."), false);
+        return trials;
     }
 }
