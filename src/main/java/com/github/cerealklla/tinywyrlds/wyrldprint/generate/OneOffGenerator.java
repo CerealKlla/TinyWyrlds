@@ -127,6 +127,13 @@ public final class OneOffGenerator {
         // one never opens a new frontier (its only point is the one being consumed), guaranteeing
         // the closing pass actually terminates rather than just relocating the dead end.
         List<WyrldPrintRecord> endcapRooms = rooms.stream().filter(r -> r.points().size() == 1).toList();
+        // During growth, an endcap room is only tried as a last resort, never preferred over a
+        // real multi-door room -- explicit user spec, 2026-10-14: "I don't want it to 'reserve
+        // them for the closing pass', so long as it's not the last option and there are more
+        // needed." Without this split, picking one by sheer chance while it's the only open
+        // frontier could terminate a whole chain early (confirmed live: an entrance -> connector ->
+        // 1-door room result that stopped at 1/10 rooms with attempt budget barely touched).
+        List<WyrldPrintRecord> multiDoorRooms = rooms.stream().filter(r -> r.points().size() > 1).toList();
         if (rooms.isEmpty() && entrances.isEmpty()) {
             return null;
         }
@@ -181,7 +188,11 @@ public final class OneOffGenerator {
                 placed = tryPlace(frontier, shuffled(connectors, random), occupied, random);
             }
             if (placed == null) {
-                placed = tryPlace(frontier, shuffled(rooms, random), occupied, random);
+                placed = tryPlace(frontier, shuffled(multiDoorRooms, random), occupied, random);
+            }
+            if (placed == null) {
+                // Last resort, not a preference -- see endcapRooms' own doc above.
+                placed = tryPlace(frontier, shuffled(endcapRooms, random), occupied, random);
             }
             if (placed == null) {
                 continue; // couldn't grow here this attempt -- frontier goes back in the closing pass below.
