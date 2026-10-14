@@ -37,8 +37,10 @@ public final class WyrldPrintCapture {
         int maxY = WyrldManager.BASELINE_Y + WyrldPrintArea.CAPTURE_ABOVE_BASELINE;
 
         // Pass 1: find every connector point's lower/base cell (wall points track their own lower
-        // half only, to avoid double-detecting the same point at its upper half too).
+        // half only, to avoid double-detecting the same point at its upper half too), plus any
+        // Spawn Location marker.
         List<DetectedPoint> detectedPoints = new ArrayList<>();
+        List<BlockPos> detectedSpawns = new ArrayList<>();
         for (int x = WyrldPrintArea.CRAFT_MIN_X; x < WyrldPrintArea.CRAFT_MAX_X; x++) {
             for (int z = WyrldPrintArea.MIN_Z; z < WyrldPrintArea.MAX_Z; z++) {
                 for (int y = minY; y <= maxY; y++) {
@@ -50,6 +52,8 @@ public final class WyrldPrintCapture {
                         }
                     } else if (state.getBlock() instanceof FloorConnectorPointBlock floor) {
                         detectedPoints.add(new DetectedPoint(pos, false, floor.size(), null));
+                    } else if (state.getBlock() instanceof SpawnLocationBlock) {
+                        detectedSpawns.add(pos);
                     }
                 }
             }
@@ -58,6 +62,12 @@ public final class WyrldPrintCapture {
         if (detectedPoints.size() < type.minimumConnectorPoints()) {
             return CaptureResult.error("A " + type.name() + " needs at least " + type.minimumConnectorPoints()
                     + " connector point(s) -- only found " + detectedPoints.size() + ".");
+        }
+        if (detectedSpawns.size() > 1) {
+            return CaptureResult.error("Only one Spawn Location marker is allowed -- found " + detectedSpawns.size() + ".");
+        }
+        if (type == WyrldPrintType.ENTRANCE && detectedSpawns.isEmpty()) {
+            return CaptureResult.error("An ENTRANCE needs exactly one Spawn Location marker -- found none.");
         }
 
         // Positions that are this point's own "suggested fill" glass and should capture as air
@@ -71,6 +81,12 @@ public final class WyrldPrintCapture {
                     clearToAir.put(fillPos, true);
                 }
             }
+        }
+        // The Spawn Location marker itself is a pure build-time aid, same precedent -- never
+        // stamped as a real block in a generated dungeon (OneOffGenerator's own floor cell, already
+        // captured beneath it, is what a player actually lands on).
+        for (BlockPos spawnPos : detectedSpawns) {
+            clearToAir.put(spawnPos, true);
         }
 
         // Pass 2: tight bounding box over every non-air cell (after the glass-to-air substitution)
@@ -113,7 +129,15 @@ public final class WyrldPrintCapture {
             // has open air there the whole time.
             boxMaxY = Math.max(boxMaxY, point.pos.getY() + (point.wall ? 2 : 1));
         }
-        if (!anyContent && detectedPoints.isEmpty()) {
+        for (BlockPos spawnPos : detectedSpawns) {
+            minX = Math.min(minX, spawnPos.getX());
+            maxX = Math.max(maxX, spawnPos.getX());
+            minZ = Math.min(minZ, spawnPos.getZ());
+            maxZ = Math.max(maxZ, spawnPos.getZ());
+            boxMinY = Math.min(boxMinY, spawnPos.getY());
+            boxMaxY = Math.max(boxMaxY, spawnPos.getY());
+        }
+        if (!anyContent && detectedPoints.isEmpty() && detectedSpawns.isEmpty()) {
             return CaptureResult.error("Nothing built in the crafting zone to save.");
         }
 
@@ -136,9 +160,13 @@ public final class WyrldPrintCapture {
                     point.pos.getY() - WyrldManager.BASELINE_Y, point.wall, point.size, Optional.ofNullable(point.facing)));
         }
 
+        Optional<WyrldPrintSpawn> spawn = detectedSpawns.isEmpty() ? Optional.empty() : Optional.of(new WyrldPrintSpawn(
+                detectedSpawns.get(0).getX() - minX, detectedSpawns.get(0).getZ() - originLateral,
+                detectedSpawns.get(0).getY() - WyrldManager.BASELINE_Y));
+
         WyrldPrintRecord record = new WyrldPrintRecord(WyrldPrintRecord.CURRENT_TEMPLATE_VERSION, name, author, type,
                 maxX - minX + 1, maxZ - minZ + 1, boxMinY - WyrldManager.BASELINE_Y, boxMaxY - WyrldManager.BASELINE_Y,
-                cells, points);
+                cells, points, spawn);
         return CaptureResult.success(record);
     }
 

@@ -88,7 +88,7 @@ public final class DebugCommands {
         try {
             type = WyrldPrintType.valueOf(typeArg.toUpperCase(java.util.Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            source.sendFailure(Component.literal("Type must be 'room' or 'connector'."));
+            source.sendFailure(Component.literal("Type must be 'room', 'connector', or 'entrance'."));
             return 0;
         }
         String author = source.getEntity() instanceof ServerPlayer player ? player.getName().getString() : "Generator";
@@ -152,13 +152,18 @@ public final class DebugCommands {
     }
 
     private static int generateOneOff(CommandSourceStack source, int minRooms, int maxRooms) {
-        WyrldInstanceRecord instance = OneOffGenerator.generate(source.getServer(), minRooms, maxRooms);
-        if (instance == null) {
-            source.sendFailure(Component.literal("Not enough saved WyrldPrints to generate a dungeon -- need at least 1 room."));
+        OneOffGenerator.GenerateResult result = OneOffGenerator.generate(source.getServer(), minRooms, maxRooms);
+        if (result == null) {
+            source.sendFailure(Component.literal("Not enough saved WyrldPrints to generate a dungeon -- need at least 1 room or entrance."));
             return 0;
         }
+        WyrldInstanceRecord instance = result.instance();
         if (source.getEntity() instanceof ServerPlayer player) {
-            WyrldManager.enter(player, instance.id());
+            if (result.spawnPos().isPresent()) {
+                WyrldManager.enterAt(player, instance.id(), result.spawnPos().get());
+            } else {
+                WyrldManager.enter(player, instance.id());
+            }
             source.sendSuccess(() -> Component.literal("Generated and entered a one-off Wyrld " + instance.id()), false);
         } else {
             source.sendSuccess(() -> Component.literal("Generated a one-off Wyrld " + instance.id()

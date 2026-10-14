@@ -4,5 +4,6 @@
   "block.tinywyrlds.connector_point_wall_large": "Connector Point (5x5)",
   "block.tinywyrlds.connector_point_floor_small": "Connector Point (1x1, Floor/Ceiling)",
   "block.tinywyrlds.connector_point_floor_medium": "Connector Point (3x3, Floor/Ceiling)",
-  "block.tinywyrlds.connector_point_floor_large": "Connector Point (5x5, Floor/Ceiling)"
+  "block.tinywyrlds.connector_point_floor_large": "Connector Point (5x5, Floor/Ceiling)",
+  "block.tinywyrlds.spawn_location": "Spawn Location"
 }

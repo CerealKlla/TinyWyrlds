@@ -90,5 +90,23 @@ system" — explicit user instruction, to avoid confusion with Blueprynts' own "
   today. Loot/mob/friendly/interactive marker points, real rotation, and WyrldRecipe-driven
   (rather than random-chain) generation are also still unbuilt — see decisions.md.
 - `./gradlew build` green throughout; generation itself was 45/45 successful captures.
+- **`ENTRANCE` WyrldPrint type + Spawn Location marker block added, 2026-10-14, later same
+  day** (see [context/classes/Entrance.md](context/classes/Entrance.md)) — a third WyrldPrint type,
+  treated like a `ROOM` for authoring/connectivity but always placed exactly once (the generated
+  layout's guaranteed first/anchor piece, never elsewhere), with a new gold-glowing
+  `SpawnLocationBlock` marking exactly where `/tinywyrlds generate` should teleport the player
+  (captured the same build-time-aid way Connector Points' own glass fill is, never a real block in
+  the stamped dungeon). `./gradlew build`/`test` green; **not yet live-tested** — no real ENTRANCE
+  WyrldPrint with a Spawn Location marker has been authored and run through `/tinywyrlds generate`
+  yet.
+- **Placement math now makes joined pieces touch, not overlap, same day** (see
+  [context/classes/WyrldPrintMechanic.md](context/classes/WyrldPrintMechanic.md)'s own 5th
+  collision-detection iteration) — a wall-type join used to force the new piece's door into the
+  exact same cell as the existing door, dragging the whole shared wall plane into forced
+  coincidence; fixed to align 1 cell further out along the existing door's own outward facing
+  instead, landing the two doors in genuinely adjacent cells. Also: connectors can no longer chain
+  directly to another connector (always sit between two rooms), and a new `selectiontest` debug
+  command reports real per-piece selection-frequency counts instead of guessing from a handful of
+  manual `generate` calls.
 
 See [context/classes/](context/classes/) for per-class reference.

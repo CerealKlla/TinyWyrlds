@@ -15,6 +15,7 @@ import com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintCell;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintPoint;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintRecord;
+import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintSpawn;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintStorage;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintType;
 
@@ -27,8 +28,10 @@ import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
- * Real connector-aware "Generate One-off": starts from a random ROOM, then repeatedly picks an
- * open connector point ("frontier"), finds another saved WyrldPrint with a compatible point
+ * Real connector-aware "Generate One-off": starts from a saved ENTRANCE when any exist (exactly
+ * one, always -- see {@link WyrldPrintType}'s own doc -- falling back to a random ROOM only when
+ * no ENTRANCE is saved yet), then repeatedly picks an open connector point ("frontier"), finds
+ * another saved WyrldPrint with a compatible point
  * (same wall/floor kind; a wall point also needs an opposite {@link WyrldPrintPoint#facing()}
  * once rotated -- see that field's own doc for the outward-facing convention every sample piece
  * follows), tries all 4 {@link Rotation}s until one lines the two points up with no bounding-box
@@ -61,8 +64,9 @@ public final class OneOffGenerator {
     private static final double PREFER_CONNECTOR_CHANCE = 0.65;
     private static final Rotation[] ALL_ROTATIONS = {Rotation.NONE, Rotation.CLOCKWISE_90, Rotation.CLOCKWISE_180, Rotation.COUNTERCLOCKWISE_90};
 
-    /** @return the created Wyrld instance, or {@code null} if no ROOM WyrldPrints are saved at all. */
-    public static WyrldInstanceRecord generate(MinecraftServer server, int minRooms, int maxRooms) {
+    /** @return the created Wyrld instance (plus its real spawn position, if an ENTRANCE was
+     *  placed), or {@code null} if no ROOM/ENTRANCE WyrldPrints are saved at all. */
+    public static GenerateResult generate(MinecraftServer server, int minRooms, int maxRooms) {
         PlanResult plan = planPlacements(minRooms, maxRooms);
         if (plan == null) {
             return null;
@@ -70,7 +74,7 @@ public final class OneOffGenerator {
         com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
                 "OneOffGenerator: placed {} piece(s) ({} room(s), target {}) in {} attempt(s)",
                 plan.placements().size(), plan.roomsPlaced(), plan.targetRooms(), plan.attempts());
-        return stamp(server, plan.placements());
+        return stamp(server, plan.placements(), plan.entrancePlacement());
     }
 
     /** Debug-only (see {@code DebugCommands}'s {@code selectiontest}): runs the exact same planning
@@ -79,7 +83,7 @@ public final class OneOffGenerator {
      *  diagnostic run hundreds of trials cheaply, added 2026-10-14 after a real report ("my room
      *  hasn't been selected once") that turned out to need actual counts, not assumptions, to
      *  investigate. @return each placed piece as {@code "<type>:<name>"}, or an empty list if no
-     *  ROOM WyrldPrints are saved at all. */
+     *  ROOM/ENTRANCE WyrldPrints are saved at all. */
     public static List<String> planOnceForDebug(int minRooms, int maxRooms) {
         PlanResult plan = planPlacements(minRooms, maxRooms);
         if (plan == null) {
@@ -93,7 +97,9 @@ public final class OneOffGenerator {
                 .filter(r -> r.type() == WyrldPrintType.ROOM).toList();
         List<WyrldPrintRecord> connectors = WyrldPrintStorage.get().listAll().stream()
                 .filter(r -> r.type() == WyrldPrintType.CONNECTOR).toList();
-        if (rooms.isEmpty()) {
+        List<WyrldPrintRecord> entrances = WyrldPrintStorage.get().listAll().stream()
+                .filter(r -> r.type() == WyrldPrintType.ENTRANCE).toList();
+        if (rooms.isEmpty() && entrances.isEmpty()) {
             return null;
         }
 
@@ -106,11 +112,18 @@ public final class OneOffGenerator {
         List<Frontier> openFrontiers = new ArrayList<>();
         Map<LocalPos, Boolean> occupied = new HashMap<>();
 
-        Placement first = new Placement(rooms.get(random.nextInt(rooms.size())), Rotation.NONE, 0, 0, 0);
+        // "Treated same as a room, but there is only 1" (explicit user spec, 2026-10-14): an
+        // ENTRANCE, when any are saved, is always the guaranteed anchor/first piece -- never a
+        // random ROOM instead, and (since it's excluded from the `rooms` list by construction)
+        // never placed anywhere else in the layout either. Falls back to a random ROOM when no
+        // ENTRANCE is saved yet, so existing content/behavior keeps working.
+        Placement first = new Placement(entrances.isEmpty() ? rooms.get(random.nextInt(rooms.size()))
+                : entrances.get(random.nextInt(entrances.size())), Rotation.NONE, 0, 0, 0);
         placements.add(first);
         occupied.putAll(cellStates(first));
         addFrontiers(openFrontiers, first, null);
         int roomsPlaced = 1;
+        Placement entrancePlacement = first.record().type() == WyrldPrintType.ENTRANCE ? first : null;
         logPlacement(first);
 
         int attempts = 0;
@@ -122,8 +135,9 @@ public final class OneOffGenerator {
             Placement placed = null;
             // Connectors must always sit between two rooms, never chain to another connector --
             // explicit user spec, 2026-10-14. A frontier whose own piece IS a connector only ever
-            // tries ROOM candidates; only a room's own frontier gets the connector preference.
-            boolean frontierOwnedByRoom = frontier.ownerType() == WyrldPrintType.ROOM;
+            // tries ROOM candidates; only a room's (or the Entrance's, same rule) own frontier gets
+            // the connector preference.
+            boolean frontierOwnedByRoom = frontier.ownerType() == WyrldPrintType.ROOM || frontier.ownerType() == WyrldPrintType.ENTRANCE;
             if (frontierOwnedByRoom && !connectors.isEmpty() && random.nextDouble() < PREFER_CONNECTOR_CHANCE) {
                 placed = tryPlace(frontier, shuffled(connectors, random), occupied, random);
             }
@@ -142,7 +156,7 @@ public final class OneOffGenerator {
             logPlacement(placed);
         }
 
-        return new PlanResult(placements, roomsPlaced, targetRooms, attempts);
+        return new PlanResult(placements, roomsPlaced, targetRooms, attempts, entrancePlacement);
     }
 
     /** Diagnostic logging added 2026-10-14 alongside {@code tryPlace}'s own collision-sample
@@ -159,7 +173,15 @@ public final class OneOffGenerator {
                 box[0], box[1], box[2], box[3], box[4], box[5]);
     }
 
-    private record PlanResult(List<Placement> placements, int roomsPlaced, int targetRooms, int attempts) {
+    private record PlanResult(List<Placement> placements, int roomsPlaced, int targetRooms, int attempts,
+                               Placement entrancePlacement) {
+    }
+
+    /** @param spawnPos where the player should actually land -- the captured {@code
+     *  WyrldPrintSpawn} marker inside whichever ENTRANCE got placed, translated into real world
+     *  coordinates, or empty if no ENTRANCE was available/placed (caller falls back to the
+     *  Wyrld's own generic inner-rect center). */
+    public record GenerateResult(WyrldInstanceRecord instance, Optional<BlockPos> spawnPos) {
     }
 
     /**
@@ -371,7 +393,7 @@ public final class OneOffGenerator {
      *  context-aware overload -- not needed here, since every block this mod ever captures
      *  (doors, cobblestone, wool, candles, etc.) rotates correctly with no world context. */
     @SuppressWarnings("deprecation")
-    private static WyrldInstanceRecord stamp(MinecraftServer server, List<Placement> placements) {
+    private static GenerateResult stamp(MinecraftServer server, List<Placement> placements, Placement entrancePlacement) {
         int minF = Integer.MAX_VALUE, maxF = Integer.MIN_VALUE, minL = Integer.MAX_VALUE, maxL = Integer.MIN_VALUE;
         for (Placement placement : placements) {
             int[] box = worldBoundingBox(placement);
@@ -384,7 +406,7 @@ public final class OneOffGenerator {
         WyrldInstanceRecord instance = WyrldManager.createWyrld(server, (maxF - minF) + 2 * MARGIN, (maxL - minL) + 2 * MARGIN);
         ServerLevel level = server.getLevel(WyrldSpaceDimension.KEY);
         if (level == null) {
-            return instance;
+            return new GenerateResult(instance, Optional.empty());
         }
         FreeRect inner = instance.innerRect();
         int worldForwardOffset = inner.x1() + MARGIN - minF;
@@ -406,7 +428,17 @@ public final class OneOffGenerator {
         for (PendingCell cell : pending) {
             level.setBlock(cell.pos(), cell.state(), 3);
         }
-        return instance;
+
+        Optional<BlockPos> spawnPos = Optional.empty();
+        if (entrancePlacement != null && entrancePlacement.record().spawn().isPresent()) {
+            WyrldPrintSpawn spawn = entrancePlacement.record().spawn().get();
+            int[] rotatedFL = rotateForwardLateral(spawn.relForward(), spawn.relLateral(), entrancePlacement.rotation());
+            int worldX = worldForwardOffset + entrancePlacement.originForward() + rotatedFL[0];
+            int worldZ = worldLateralOffset + entrancePlacement.originLateral() + rotatedFL[1];
+            int worldY = WyrldManager.BASELINE_Y + entrancePlacement.originY() + spawn.relY();
+            spawnPos = Optional.of(new BlockPos(worldX, worldY, worldZ));
+        }
+        return new GenerateResult(instance, spawnPos);
     }
 
     private record Placement(WyrldPrintRecord record, Rotation rotation, int originForward, int originLateral, int originY) {

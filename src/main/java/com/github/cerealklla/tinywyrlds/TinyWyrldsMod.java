@@ -63,5 +63,6 @@ public class TinyWyrldsMod {
         event.accept(ModItems.CONNECTOR_POINT_FLOOR_SMALL_ITEM.get());
         event.accept(ModItems.CONNECTOR_POINT_FLOOR_MEDIUM_ITEM.get());
         event.accept(ModItems.CONNECTOR_POINT_FLOOR_LARGE_ITEM.get());
+        event.accept(ModItems.SPAWN_LOCATION_ITEM.get());
     }
 }

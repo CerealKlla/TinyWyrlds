@@ -1,18 +1,21 @@
 package com.github.cerealklla.tinywyrlds.wyrldprint;
 
 import java.util.List;
+import java.util.Optional;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 /**
- * A saved WyrldPrint -- either a {@code ROOM} or a {@code CONNECTOR} (see {@link WyrldPrintType}).
- * No size limit on either type (explicit spec): {@code forwardSize}/{@code lateralSize} are
- * whatever the real captured content's bounding box turned out to be, not a fixed budget.
+ * A saved WyrldPrint -- a {@code ROOM}, a {@code CONNECTOR}, or an {@code ENTRANCE} (see {@link
+ * WyrldPrintType}). No size limit on any type (explicit spec): {@code forwardSize}/{@code
+ * lateralSize} are whatever the real captured content's bounding box turned out to be, not a fixed
+ * budget.
  */
 public record WyrldPrintRecord(int templateVersion, String name, String author, WyrldPrintType type,
                                 int forwardSize, int lateralSize, int minY, int maxY,
-                                List<WyrldPrintCell> cells, List<WyrldPrintPoint> points) {
+                                List<WyrldPrintCell> cells, List<WyrldPrintPoint> points,
+                                Optional<WyrldPrintSpawn> spawn) {
 
     public static final int CURRENT_TEMPLATE_VERSION = 1;
 
@@ -26,6 +29,7 @@ public record WyrldPrintRecord(int templateVersion, String name, String author, 
             Codec.INT.fieldOf("min_y").forGetter(WyrldPrintRecord::minY),
             Codec.INT.fieldOf("max_y").forGetter(WyrldPrintRecord::maxY),
             WyrldPrintCell.CODEC.listOf().fieldOf("cells").forGetter(WyrldPrintRecord::cells),
-            WyrldPrintPoint.CODEC.listOf().optionalFieldOf("points", List.of()).forGetter(WyrldPrintRecord::points)
+            WyrldPrintPoint.CODEC.listOf().optionalFieldOf("points", List.of()).forGetter(WyrldPrintRecord::points),
+            WyrldPrintSpawn.CODEC.optionalFieldOf("spawn").forGetter(WyrldPrintRecord::spawn)
     ).apply(i, WyrldPrintRecord::new));
 }

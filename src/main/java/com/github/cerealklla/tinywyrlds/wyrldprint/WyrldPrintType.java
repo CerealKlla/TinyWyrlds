@@ -11,10 +11,19 @@ import com.mojang.serialization.Codec;
  * 2 of any type of Connector Points, and serves as the hallway between rooms"); a {@code ROOM}
  * needs at least 1 (the original spec's own "Rooms will have defined connector points, at minimum
  * 1"). Neither type has a size limit.
+ *
+ * <p>{@code ENTRANCE} added same day, later: "treated same as a room, but there is only 1" -- same
+ * minimum-connector-point rule as {@code ROOM}, but {@code generate.OneOffGenerator} always places
+ * exactly one (as the guaranteed first/anchor piece of a generated layout, preferring it over a
+ * random {@code ROOM} when any are saved) and never anywhere else, and requires exactly one {@code
+ * wyrldprint.SpawnLocationBlock} marker (see its own doc) so a generated dungeon has a real,
+ * specific spot to teleport the player into instead of just the Wyrld's own generic inner-rect
+ * center.
  */
 public enum WyrldPrintType {
     ROOM,
-    CONNECTOR;
+    CONNECTOR,
+    ENTRANCE;
 
     public static final Codec<WyrldPrintType> CODEC = Codec.STRING.xmap(
             s -> WyrldPrintType.valueOf(s.toUpperCase(Locale.ROOT)),

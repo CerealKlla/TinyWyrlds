@@ -64,9 +64,20 @@ public final class WyrldManager {
         return instance;
     }
 
-    /** Teleports {@code player} into {@code wyrldId}'s inner footprint, recording where they came
-     *  from so {@link #leave} can send them back. Reviving a STALE instance back to ACTIVE. */
+    /** Teleports {@code player} into {@code wyrldId}'s inner footprint (its generic center),
+     *  recording where they came from so {@link #leave} can send them back. Reviving a STALE
+     *  instance back to ACTIVE. */
     public static boolean enter(ServerPlayer player, UUID wyrldId) {
+        return enterAt(player, wyrldId, null);
+    }
+
+    /** Same as {@link #enter}, but teleports to {@code exactPos} instead of the inner footprint's
+     *  generic center when {@code exactPos} is non-null -- added 2026-10-14 for {@code
+     *  generate.OneOffGenerator}'s real Spawn Location marker ("a 'spawn location' block ... for
+     *  where the players will actually arrive"), so a generated dungeon's ENTRANCE piece lands the
+     *  player exactly where its author placed that marker, not just somewhere in the middle of the
+     *  whole reserved footprint. */
+    public static boolean enterAt(ServerPlayer player, UUID wyrldId, BlockPos exactPos) {
         MinecraftServer server = player.level().getServer();
         Optional<WyrldInstanceRecord> maybeInstance = WyrldSpaceData.get(server).getInstance(wyrldId);
         if (maybeInstance.isEmpty()) {
@@ -82,9 +93,18 @@ public final class WyrldManager {
         PlayerWyrldData current = player.getData(ModAttachments.WYRLD_DATA);
         player.setData(ModAttachments.WYRLD_DATA, current.enteringWyrld(wyrldId, from));
 
-        FreeRect inner = instance.innerRect();
-        player.teleportTo(wyrldLevel, inner.centerX() + 0.5, instance.baselineY(), inner.centerZ() + 0.5,
-                Set.of(), player.getYRot(), player.getXRot(), true);
+        double x, y, z;
+        if (exactPos != null) {
+            x = exactPos.getX() + 0.5;
+            y = exactPos.getY();
+            z = exactPos.getZ() + 0.5;
+        } else {
+            FreeRect inner = instance.innerRect();
+            x = inner.centerX() + 0.5;
+            y = instance.baselineY();
+            z = inner.centerZ() + 0.5;
+        }
+        player.teleportTo(wyrldLevel, x, y, z, Set.of(), player.getYRot(), player.getXRot(), true);
 
         reviveIfStale(server, instance);
         return true;

@@ -19,4 +19,5 @@ public final class ModItems {
     public static final DeferredItem<BlockItem> CONNECTOR_POINT_FLOOR_SMALL_ITEM = ITEMS.registerSimpleBlockItem(ModBlocks.CONNECTOR_POINT_FLOOR_SMALL);
     public static final DeferredItem<BlockItem> CONNECTOR_POINT_FLOOR_MEDIUM_ITEM = ITEMS.registerSimpleBlockItem(ModBlocks.CONNECTOR_POINT_FLOOR_MEDIUM);
     public static final DeferredItem<BlockItem> CONNECTOR_POINT_FLOOR_LARGE_ITEM = ITEMS.registerSimpleBlockItem(ModBlocks.CONNECTOR_POINT_FLOOR_LARGE);
+    public static final DeferredItem<BlockItem> SPAWN_LOCATION_ITEM = ITEMS.registerSimpleBlockItem(ModBlocks.SPAWN_LOCATION);
 }
