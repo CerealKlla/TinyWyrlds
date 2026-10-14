@@ -246,11 +246,19 @@ public final class OneOffGenerator {
         // enough to already-placed structure that nothing else can occupy the remaining gap)
         // shouldn't stand out as a real, functional, leads-nowhere door. Explicit user spec,
         // 2026-10-14: "I think in that case it should replace the Connector with whatever blocks
-        // are surrounding it." Samples the real block immediately through the door (1 step along
-        // its own outward facing, same direction convention as the touch-not-overlap fix) from the
-        // now-final placements list, per door half, and hands the override to stamp() to use
-        // instead of air. Scoped to wall-type only -- a floor point has no stored facing to know
-        // which direction "through the door" even means, so it keeps the existing air fallback.
+        // are surrounding it." For each door half, tries real neighboring material in this
+        // priority order: (1) straight through the door, along its own outward `facing` -- real
+        // nearby structure, when there genuinely is any; (2/3) sideways, perpendicular to facing
+        // (`getClockWise()`/`getCounterClockWise()`, same convention `ConnectorPointFill` already
+        // uses for its fill footprint) -- the connector's *own* wall material immediately beside
+        // its own door, which is always real content for any normally-built connector, and is what
+        // a door genuinely open to empty Wyrld-space void (confirmed live, a second real report:
+        // "about 5 or 6 Connectors... didn't get blocked off either so it's just open to the
+        // outside" -- nothing existed to sample straight through, so sealing silently did nothing
+        // and fell all the way back to the ordinary air rule) actually needs. Only once all three
+        // directions come back empty does a cell fall through to the existing air fallback.
+        // Scoped to wall-type only -- a floor point has no stored facing to know which direction
+        // "through the door" even means.
         Map<LocalPos, BlockState> doorSeals = new HashMap<>();
         if (!unresolvedFrontiers.isEmpty()) {
             Map<LocalPos, BlockState> realBlocks = buildRealBlockMap(placements);
@@ -259,13 +267,21 @@ public final class OneOffGenerator {
                     continue;
                 }
                 Direction outward = frontier.facing().get();
+                Direction side = outward.getClockWise();
+                int[][] candidateSteps = {
+                        {outward.getStepX(), outward.getStepZ()},
+                        {side.getStepX(), side.getStepZ()},
+                        {-side.getStepX(), -side.getStepZ()},
+                };
                 for (int dy = 0; dy <= 1; dy++) {
                     LocalPos doorCell = new LocalPos(frontier.worldForward(), frontier.worldLateral(), frontier.worldY() + dy);
-                    LocalPos neighbor = new LocalPos(frontier.worldForward() + outward.getStepX(),
-                            frontier.worldLateral() + outward.getStepZ(), frontier.worldY() + dy);
-                    BlockState neighborState = realBlocks.get(neighbor);
-                    if (neighborState != null && !neighborState.isAir()) {
-                        doorSeals.put(doorCell, neighborState);
+                    for (int[] step : candidateSteps) {
+                        LocalPos neighbor = new LocalPos(frontier.worldForward() + step[0], frontier.worldLateral() + step[1], frontier.worldY() + dy);
+                        BlockState neighborState = realBlocks.get(neighbor);
+                        if (neighborState != null && !neighborState.isAir()) {
+                            doorSeals.put(doorCell, neighborState);
+                            break;
+                        }
                     }
                 }
             }
