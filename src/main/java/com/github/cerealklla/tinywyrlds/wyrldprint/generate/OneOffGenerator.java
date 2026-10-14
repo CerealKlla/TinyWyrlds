@@ -255,19 +255,25 @@ public final class OneOffGenerator {
         // there" has an edge case for every possible nearby layout. Explicit user feedback, same
         // day: "If you think your design will work fine, but it's still not working" -- replaced
         // entirely with something that can't have a geometric edge case because it doesn't look
-        // around at all: every unresolved cell in the connector's own fill footprint gets sealed
-        // with that *same connector piece's own* most common solid wall material (`
-        // representativeWallMaterial`, computed directly from its own saved cells, rotated to match
-        // this placement) -- always available for any normally-built connector, regardless of what
-        // is or isn't nearby. Scoped to wall-type only -- a floor point has no stored facing to
-        // know "through the door," and this version doesn't need that concept at all anymore, but a
-        // floor connector's own vertical shaft shape makes an air opening far less likely to read
-        // as a dead end in the first place.
+        // around at all: every unresolved cell in the point's own fill footprint gets sealed with
+        // that *same piece's own* most common solid wall material (`representativeWallMaterial`,
+        // computed directly from its own saved cells, rotated to match this placement) -- always
+        // available for any normally-built piece, regardless of what is or isn't nearby.
+        //
+        // <p>Originally scoped to CONNECTOR-owned frontiers only -- real user report, same day,
+        // found that wrong: "this latest one generated with at least 6 holes," traced to plenty of
+        // unresolved ROOM-owned frontiers in the log (a multi-door room with some doors simply never
+        // attached to anything). A ROOM's/ENTRANCE's own unused door is stripped to air by the
+        // ordinary `isConnectorArtifact` rule exactly the same as a CONNECTOR's, so it needs the
+        // exact same sealing -- there was never a real reason to restrict this to one owner type.
+        // Scoped to wall-type only -- a floor point has no stored facing to know "through the door,"
+        // and this version doesn't need that concept at all anymore, but a floor connector's own
+        // vertical shaft shape makes an air opening far less likely to read as a dead end regardless.
         Map<LocalPos, BlockState> doorSeals = new HashMap<>();
         if (!unresolvedFrontiers.isEmpty()) {
             Map<LocalPos, BlockState> realBlocks = buildRealBlockMap(placements);
             for (Frontier frontier : unresolvedFrontiers) {
-                if (frontier.ownerType() != WyrldPrintType.CONNECTOR || !frontier.wall() || frontier.facing().isEmpty()) {
+                if (!frontier.wall() || frontier.facing().isEmpty()) {
                     continue;
                 }
                 BlockState material = representativeWallMaterial(frontier.ownerPlacement().record());
@@ -289,9 +295,10 @@ public final class OneOffGenerator {
     }
 
     /** The most common real (non-air, non-connector-artifact) {@code BlockState} among a
-     *  WyrldPrint's own captured cells -- used to seal an unresolved connector door with the
-     *  piece's own wall material, deliberately independent of whatever is or isn't nearby in the
-     *  final generated layout (see the door-sealing pass's own doc for why). {@code null} only for
+     *  WyrldPrint's own captured cells -- used to seal an unresolved connector point (on any piece
+     *  type -- ROOM, ENTRANCE, or CONNECTOR) with its own wall material, deliberately independent of
+     *  whatever is or isn't nearby in the final generated layout (see the door-sealing pass's own
+     *  doc for why). {@code null} only for
      *  a genuinely degenerate connector with no solid material anywhere in its own geometry. */
     private static BlockState representativeWallMaterial(WyrldPrintRecord record) {
         Map<BlockState, Integer> counts = new HashMap<>();
