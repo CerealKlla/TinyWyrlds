@@ -84,6 +84,10 @@ public final class OneOffGenerator {
 
     private static final int MARGIN = 5;
     private static final double PREFER_CONNECTOR_CHANCE = 0.65;
+    /** How far the door-sealing pass scans outward (through/sideways) looking for real material --
+     *  deep enough to clear a LARGE {@code ConnectorPointSize}'s own 2-cell buffer-air gap
+     *  (footprint 5, so (5-1)/2 = 2) with margin to spare. */
+    private static final int SEAL_SEARCH_DEPTH = 4;
     private static final Rotation[] ALL_ROTATIONS = {Rotation.NONE, Rotation.CLOCKWISE_90, Rotation.CLOCKWISE_180, Rotation.COUNTERCLOCKWISE_90};
 
     /** @return the created Wyrld instance (plus its real spawn position, if an ENTRANCE was
@@ -246,19 +250,23 @@ public final class OneOffGenerator {
         // enough to already-placed structure that nothing else can occupy the remaining gap)
         // shouldn't stand out as a real, functional, leads-nowhere door. Explicit user spec,
         // 2026-10-14: "I think in that case it should replace the Connector with whatever blocks
-        // are surrounding it." For each door half, tries real neighboring material in this
-        // priority order: (1) straight through the door, along its own outward `facing` -- real
-        // nearby structure, when there genuinely is any; (2/3) sideways, perpendicular to facing
+        // are surrounding it." For each door half, tries real material in this priority order:
+        // (1) straight through the door, along its own outward `facing` -- real nearby structure,
+        // when there genuinely is any; (2/3) sideways, perpendicular to facing
         // (`getClockWise()`/`getCounterClockWise()`, same convention `ConnectorPointFill` already
-        // uses for its fill footprint) -- the connector's *own* wall material immediately beside
-        // its own door, which is always real content for any normally-built connector, and is what
-        // a door genuinely open to empty Wyrld-space void (confirmed live, a second real report:
-        // "about 5 or 6 Connectors... didn't get blocked off either so it's just open to the
-        // outside" -- nothing existed to sample straight through, so sealing silently did nothing
-        // and fell all the way back to the ordinary air rule) actually needs. Only once all three
-        // directions come back empty does a cell fall through to the existing air fallback.
-        // Scoped to wall-type only -- a floor point has no stored facing to know which direction
-        // "through the door" even means.
+        // uses for its fill footprint) -- the connector's *own* wall material, for a door genuinely
+        // open to empty Wyrld-space void (confirmed live: "about 5 or 6 Connectors... didn't get
+        // blocked off either so it's just open to the outside" -- an immediate-neighbor-only sample
+        // found nothing, so sealing silently no-oped). Each direction is scanned outward up to
+        // {@link #SEAL_SEARCH_DEPTH} cells, not just 1 step -- a MEDIUM/LARGE `ConnectorPointSize`
+        // deliberately leaves 1-2 cells of buffer air flanking its own door (same footprint
+        // {@code ConnectorPointFill}'s own glass fill uses), so the piece's real wall sits further
+        // out than its immediate neighbor (confirmed live via a second report of the exact same
+        // symptom persisting after the first, immediate-neighbor-only version of this fix -- traced
+        // directly to a real saved connector's own captured geometry, not a hypothesis). Only once
+        // all three directions come back completely empty does a cell fall through to air. Scoped
+        // to wall-type only -- a floor point has no stored facing to know which direction "through
+        // the door" even means.
         Map<LocalPos, BlockState> doorSeals = new HashMap<>();
         if (!unresolvedFrontiers.isEmpty()) {
             Map<LocalPos, BlockState> realBlocks = buildRealBlockMap(placements);
@@ -268,18 +276,26 @@ public final class OneOffGenerator {
                 }
                 Direction outward = frontier.facing().get();
                 Direction side = outward.getClockWise();
-                int[][] candidateSteps = {
+                int[][] candidateDirections = {
                         {outward.getStepX(), outward.getStepZ()},
                         {side.getStepX(), side.getStepZ()},
                         {-side.getStepX(), -side.getStepZ()},
                 };
                 for (int dy = 0; dy <= 1; dy++) {
                     LocalPos doorCell = new LocalPos(frontier.worldForward(), frontier.worldLateral(), frontier.worldY() + dy);
-                    for (int[] step : candidateSteps) {
-                        LocalPos neighbor = new LocalPos(frontier.worldForward() + step[0], frontier.worldLateral() + step[1], frontier.worldY() + dy);
-                        BlockState neighborState = realBlocks.get(neighbor);
-                        if (neighborState != null && !neighborState.isAir()) {
-                            doorSeals.put(doorCell, neighborState);
+                    for (int[] direction : candidateDirections) {
+                        BlockState sealState = null;
+                        for (int dist = 1; dist <= SEAL_SEARCH_DEPTH; dist++) {
+                            LocalPos neighbor = new LocalPos(frontier.worldForward() + direction[0] * dist,
+                                    frontier.worldLateral() + direction[1] * dist, frontier.worldY() + dy);
+                            BlockState candidate = realBlocks.get(neighbor);
+                            if (candidate != null && !candidate.isAir()) {
+                                sealState = candidate;
+                                break;
+                            }
+                        }
+                        if (sealState != null) {
+                            doorSeals.put(doorCell, sealState);
                             break;
                         }
                     }
