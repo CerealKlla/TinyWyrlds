@@ -159,8 +159,11 @@ public final class DebugCommands {
         }
         WyrldInstanceRecord instance = result.instance();
         if (source.getEntity() instanceof ServerPlayer player) {
-            if (result.spawnPos().isPresent()) {
-                WyrldManager.enterAt(player, instance.id(), result.spawnPos().get());
+            // Multiple spawn points are meant for a whole party arriving together (explicit user
+            // spec, 2026-10-14) -- this single-player debug command just uses the first one; a
+            // real party-aware entry point (assigning each player their own marker) is future work.
+            if (!result.spawnPoints().isEmpty()) {
+                WyrldManager.enterAt(player, instance.id(), result.spawnPoints().get(0));
             } else {
                 WyrldManager.enter(player, instance.id());
             }

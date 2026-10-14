@@ -18,12 +18,16 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintRecord;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintSpawn;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintStorage;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintType;
+import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorPointSize;
+import com.github.cerealklla.tinywyrlds.wyrldprint.connector.FloorConnectorPointBlock;
+import com.github.cerealklla.tinywyrlds.wyrldprint.connector.WallConnectorPointBlock;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -35,13 +39,21 @@ import net.minecraft.world.level.block.state.BlockState;
  * (same wall/floor kind; a wall point also needs an opposite {@link WyrldPrintPoint#facing()}
  * once rotated -- see that field's own doc for the outward-facing convention every sample piece
  * follows), tries all 4 {@link Rotation}s until one lines the two points up with no bounding-box
- * overlap against anything already placed, and stamps it in. Keeps going until the target room
- * count is reached or every frontier dead-ends ({@code minRooms}/{@code maxRooms} count only ROOM
- * pieces -- a CONNECTOR placed in between is extra, not counted toward that target). A CONNECTOR
- * is preferred between two rooms (65% of the time, when any are saved) purely for variety, with
- * direct room-to-room also valid -- but a connector's own frontier is <b>never</b> extended with
- * another connector (explicit user spec, 2026-10-14: "connectors are meant to sit between rooms"),
- * only with a ROOM, so two connectors can never chain back to back.
+ * overlap against anything already placed, and stamps it in. Grows until the target room count is
+ * reached or growth runs out of attempts ({@code minRooms}/{@code maxRooms} count only ROOM pieces
+ * -- a CONNECTOR placed in between is extra, not counted toward that target). A CONNECTOR is
+ * preferred between two rooms (65% of the time, when any are saved) purely for variety, with direct
+ * room-to-room also valid -- but a connector's own frontier is <b>never</b> extended with another
+ * connector (explicit user spec, 2026-10-14: "connectors are meant to sit between rooms"), only
+ * with a ROOM, so two connectors can never chain back to back.
+ *
+ * <p><b>There is never a real dead end</b> (explicit user spec, 2026-10-14: "There should never be
+ * an unused/dead-end... This inherently might allow a dungeon to exceed the max rooms, that is
+ * ok."): once growth stops, a second closing pass resolves every still-open frontier with a 1-door
+ * "endcap" ROOM (a saved room with exactly one connector point) instead of leaving a real, unused,
+ * closed door behind. An endcap attachment never opens a new frontier (its only point is the one
+ * being consumed), so the closing pass is guaranteed to actually terminate, and can push the real
+ * room count past {@code maxRooms} -- accepted and expected, not a bug.
  *
  * <p>Everything is planned in a local (forward, lateral, Y) space first -- no real block is
  * touched until the whole layout is decided -- then translated once into a freshly reserved Wyrld
@@ -99,6 +111,12 @@ public final class OneOffGenerator {
                 .filter(r -> r.type() == WyrldPrintType.CONNECTOR).toList();
         List<WyrldPrintRecord> entrances = WyrldPrintStorage.get().listAll().stream()
                 .filter(r -> r.type() == WyrldPrintType.ENTRANCE).toList();
+        // "There should never be an unused/dead-end. there will be rooms with only 1 door, those
+        // are how we will end those paths" (explicit user spec, 2026-10-14) -- a ROOM with exactly
+        // one connector point is the dedicated closing piece for the second pass below. Attaching
+        // one never opens a new frontier (its only point is the one being consumed), guaranteeing
+        // the closing pass actually terminates rather than just relocating the dead end.
+        List<WyrldPrintRecord> endcapRooms = rooms.stream().filter(r -> r.points().size() == 1).toList();
         if (rooms.isEmpty() && entrances.isEmpty()) {
             return null;
         }
@@ -145,7 +163,7 @@ public final class OneOffGenerator {
                 placed = tryPlace(frontier, shuffled(rooms, random), occupied, random);
             }
             if (placed == null) {
-                continue; // dead end -- the point stays a real, closed, unused door/trapdoor.
+                continue; // couldn't grow here this attempt -- frontier goes back in the closing pass below.
             }
             placements.add(placed);
             occupied.putAll(cellStates(placed));
@@ -155,6 +173,32 @@ public final class OneOffGenerator {
             }
             logPlacement(placed);
         }
+
+        // Closing pass: once growth stops (room target hit, or the growth budget ran out), every
+        // *remaining* open frontier must still be resolved with a 1-door endcap room -- never left
+        // as a real, unused door. Explicit user spec, 2026-10-14: "There should never be an unused/
+        // dead-end... This inherently might allow a dungeon to exceed the max rooms, that is ok."
+        // Deliberately never tries a CONNECTOR or a multi-door ROOM here -- either would just open
+        // a new frontier instead of closing this one.
+        int closingBudget = Math.max(50, openFrontiers.size() * 30);
+        int closingAttempts = 0;
+        while (!openFrontiers.isEmpty() && closingAttempts < closingBudget) {
+            closingAttempts++;
+            Frontier frontier = openFrontiers.remove(random.nextInt(openFrontiers.size()));
+            if (endcapRooms.isEmpty()) {
+                continue; // no 1-door room saved at all -- falls back to a real closed door, same as before.
+            }
+            Placement placed = tryPlace(frontier, shuffled(endcapRooms, random), occupied, random);
+            if (placed == null) {
+                continue; // couldn't fit any endcap room here either -- same fallback.
+            }
+            placements.add(placed);
+            occupied.putAll(cellStates(placed));
+            addFrontiers(openFrontiers, placed, frontier); // always zero new frontiers -- its one point was just consumed.
+            roomsPlaced++; // endcapRooms are ROOM-type by construction.
+            logPlacement(placed);
+        }
+        attempts += closingAttempts;
 
         return new PlanResult(placements, roomsPlaced, targetRooms, attempts, entrancePlacement);
     }
@@ -177,11 +221,12 @@ public final class OneOffGenerator {
                                Placement entrancePlacement) {
     }
 
-    /** @param spawnPos where the player should actually land -- the captured {@code
-     *  WyrldPrintSpawn} marker inside whichever ENTRANCE got placed, translated into real world
-     *  coordinates, or empty if no ENTRANCE was available/placed (caller falls back to the
+    /** @param spawnPoints every real-world spot a player could land -- the ENTRANCE's own captured
+     *  {@code WyrldPrintSpawn} marker(s), translated into real world coordinates. More than one is
+     *  expected and fine (explicit user spec, 2026-10-14: "if a party arrives they all need their
+     *  own spawn point"); empty if no ENTRANCE was available/placed (caller falls back to the
      *  Wyrld's own generic inner-rect center). */
-    public record GenerateResult(WyrldInstanceRecord instance, Optional<BlockPos> spawnPos) {
+    public record GenerateResult(WyrldInstanceRecord instance, List<BlockPos> spawnPoints) {
     }
 
     /**
@@ -406,7 +451,7 @@ public final class OneOffGenerator {
         WyrldInstanceRecord instance = WyrldManager.createWyrld(server, (maxF - minF) + 2 * MARGIN, (maxL - minL) + 2 * MARGIN);
         ServerLevel level = server.getLevel(WyrldSpaceDimension.KEY);
         if (level == null) {
-            return new GenerateResult(instance, Optional.empty());
+            return new GenerateResult(instance, List.of());
         }
         FreeRect inner = instance.innerRect();
         int worldForwardOffset = inner.x1() + MARGIN - minF;
@@ -421,7 +466,9 @@ public final class OneOffGenerator {
                 int worldX = worldForwardOffset + placement.originForward() + rotatedFL[0];
                 int worldZ = worldLateralOffset + placement.originLateral() + rotatedFL[1];
                 int worldY = WyrldManager.BASELINE_Y + placement.originY() + cell.relY();
-                pending.add(new PendingCell(new BlockPos(worldX, worldY, worldZ), cell.state().rotate(placement.rotation()), worldY));
+                BlockState rotated = cell.state().rotate(placement.rotation());
+                BlockState finalState = isConnectorArtifact(rotated) ? Blocks.AIR.defaultBlockState() : rotated;
+                pending.add(new PendingCell(new BlockPos(worldX, worldY, worldZ), finalState, worldY));
             }
         }
         pending.sort(Comparator.comparingInt(PendingCell::y));
@@ -429,16 +476,36 @@ public final class OneOffGenerator {
             level.setBlock(cell.pos(), cell.state(), 3);
         }
 
-        Optional<BlockPos> spawnPos = Optional.empty();
-        if (entrancePlacement != null && entrancePlacement.record().spawn().isPresent()) {
-            WyrldPrintSpawn spawn = entrancePlacement.record().spawn().get();
-            int[] rotatedFL = rotateForwardLateral(spawn.relForward(), spawn.relLateral(), entrancePlacement.rotation());
-            int worldX = worldForwardOffset + entrancePlacement.originForward() + rotatedFL[0];
-            int worldZ = worldLateralOffset + entrancePlacement.originLateral() + rotatedFL[1];
-            int worldY = WyrldManager.BASELINE_Y + entrancePlacement.originY() + spawn.relY();
-            spawnPos = Optional.of(new BlockPos(worldX, worldY, worldZ));
+        List<BlockPos> spawnPoints = new ArrayList<>();
+        if (entrancePlacement != null) {
+            for (WyrldPrintSpawn spawn : entrancePlacement.record().spawnPoints()) {
+                int[] rotatedFL = rotateForwardLateral(spawn.relForward(), spawn.relLateral(), entrancePlacement.rotation());
+                int worldX = worldForwardOffset + entrancePlacement.originForward() + rotatedFL[0];
+                int worldZ = worldLateralOffset + entrancePlacement.originLateral() + rotatedFL[1];
+                int worldY = WyrldManager.BASELINE_Y + entrancePlacement.originY() + spawn.relY();
+                spawnPoints.add(new BlockPos(worldX, worldY, worldZ));
+            }
         }
-        return new GenerateResult(instance, spawnPos);
+        return new GenerateResult(instance, spawnPoints);
+    }
+
+    /** A real generated dungeon never shows the raw Connector Point door/trapdoor or its glass
+     *  fill -- explicit user spec, 2026-10-14: "the connector door and glass need to NOT be built
+     *  into the world." Those are purely authoring-time matching/visual aids; once the generator
+     *  has used a point to join two pieces, the real stamped result should just be an open passage
+     *  (air) there instead. In practice the glass half of this is already a no-op for any normally
+     *  captured record (`WyrldPrintCapture` already clears it back to air at save time), but this
+     *  check stays defense-in-depth rather than relying on that alone. */
+    private static boolean isConnectorArtifact(BlockState state) {
+        if (state.getBlock() instanceof WallConnectorPointBlock || state.getBlock() instanceof FloorConnectorPointBlock) {
+            return true;
+        }
+        for (ConnectorPointSize size : ConnectorPointSize.values()) {
+            if (state.getBlock() == size.glassBlock()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private record Placement(WyrldPrintRecord record, Rotation rotation, int originForward, int originLateral, int originY) {

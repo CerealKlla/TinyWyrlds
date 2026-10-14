@@ -63,11 +63,8 @@ public final class WyrldPrintCapture {
             return CaptureResult.error("A " + type.name() + " needs at least " + type.minimumConnectorPoints()
                     + " connector point(s) -- only found " + detectedPoints.size() + ".");
         }
-        if (detectedSpawns.size() > 1) {
-            return CaptureResult.error("Only one Spawn Location marker is allowed -- found " + detectedSpawns.size() + ".");
-        }
         if (type == WyrldPrintType.ENTRANCE && detectedSpawns.isEmpty()) {
-            return CaptureResult.error("An ENTRANCE needs exactly one Spawn Location marker -- found none.");
+            return CaptureResult.error("An ENTRANCE needs at least one Spawn Location marker -- found none.");
         }
 
         // Positions that are this point's own "suggested fill" glass and should capture as air
@@ -160,13 +157,15 @@ public final class WyrldPrintCapture {
                     point.pos.getY() - WyrldManager.BASELINE_Y, point.wall, point.size, Optional.ofNullable(point.facing)));
         }
 
-        Optional<WyrldPrintSpawn> spawn = detectedSpawns.isEmpty() ? Optional.empty() : Optional.of(new WyrldPrintSpawn(
-                detectedSpawns.get(0).getX() - minX, detectedSpawns.get(0).getZ() - originLateral,
-                detectedSpawns.get(0).getY() - WyrldManager.BASELINE_Y));
+        List<WyrldPrintSpawn> spawnPoints = new ArrayList<>();
+        for (BlockPos spawnPos : detectedSpawns) {
+            spawnPoints.add(new WyrldPrintSpawn(spawnPos.getX() - minX, spawnPos.getZ() - originLateral,
+                    spawnPos.getY() - WyrldManager.BASELINE_Y));
+        }
 
         WyrldPrintRecord record = new WyrldPrintRecord(WyrldPrintRecord.CURRENT_TEMPLATE_VERSION, name, author, type,
                 maxX - minX + 1, maxZ - minZ + 1, boxMinY - WyrldManager.BASELINE_Y, boxMaxY - WyrldManager.BASELINE_Y,
-                cells, points, spawn);
+                cells, points, spawnPoints);
         return CaptureResult.success(record);
     }
 

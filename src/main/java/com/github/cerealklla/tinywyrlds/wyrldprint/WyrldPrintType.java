@@ -15,10 +15,12 @@ import com.mojang.serialization.Codec;
  * <p>{@code ENTRANCE} added same day, later: "treated same as a room, but there is only 1" -- same
  * minimum-connector-point rule as {@code ROOM}, but {@code generate.OneOffGenerator} always places
  * exactly one (as the guaranteed first/anchor piece of a generated layout, preferring it over a
- * random {@code ROOM} when any are saved) and never anywhere else, and requires exactly one {@code
- * wyrldprint.SpawnLocationBlock} marker (see its own doc) so a generated dungeon has a real,
- * specific spot to teleport the player into instead of just the Wyrld's own generic inner-rect
- * center.
+ * random {@code ROOM} when any are saved) and never anywhere else, and requires at least one {@code
+ * wyrldprint.SpawnLocationBlock} marker (see its own doc) so a generated dungeon has real, specific
+ * spot(s) to teleport player(s) into instead of just the Wyrld's own generic inner-rect center.
+ * More than one marker is expected and fine -- "there is only 1" is about the ENTRANCE WyrldPrint
+ * itself, not the spawn markers inside it ("if a party arrives they all need their own spawn
+ * point," clarified same day).
  */
 public enum WyrldPrintType {
     ROOM,
