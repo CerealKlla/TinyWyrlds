@@ -281,13 +281,21 @@ public final class OneOffGenerator {
                         {side.getStepX(), side.getStepZ()},
                         {-side.getStepX(), -side.getStepZ()},
                 };
-                for (int dy = 0; dy <= 1; dy++) {
-                    LocalPos doorCell = new LocalPos(frontier.worldForward(), frontier.worldLateral(), frontier.worldY() + dy);
+                // Seal every cell in the point's own fill footprint (same shape
+                // ConnectorPointFill.fillWall marks out for a MEDIUM/LARGE size -- a door's own 2
+                // cells plus the surrounding buffer area), not just the door itself -- real user
+                // report, screenshots showing open gaps framing an otherwise-sealed door: the buffer
+                // cells are air in the captured record from the start (never the door's own
+                // problem), and were never touched by the door-only version of this fix.
+                for (LocalPos cell : wallFootprintCells(frontier)) {
+                    if (realBlocks.get(cell) != null && !realBlocks.get(cell).isAir()) {
+                        continue; // already real content (the player built over the suggestion) -- leave it alone.
+                    }
                     for (int[] direction : candidateDirections) {
                         BlockState sealState = null;
                         for (int dist = 1; dist <= SEAL_SEARCH_DEPTH; dist++) {
-                            LocalPos neighbor = new LocalPos(frontier.worldForward() + direction[0] * dist,
-                                    frontier.worldLateral() + direction[1] * dist, frontier.worldY() + dy);
+                            LocalPos neighbor = new LocalPos(cell.forward() + direction[0] * dist,
+                                    cell.lateral() + direction[1] * dist, cell.y());
                             BlockState candidate = realBlocks.get(neighbor);
                             if (candidate != null && !candidate.isAir()) {
                                 sealState = candidate;
@@ -295,7 +303,7 @@ public final class OneOffGenerator {
                             }
                         }
                         if (sealState != null) {
-                            doorSeals.put(doorCell, sealState);
+                            doorSeals.put(cell, sealState);
                             break;
                         }
                     }
@@ -304,6 +312,27 @@ public final class OneOffGenerator {
         }
 
         return new PlanResult(placements, roomsPlaced, targetRooms, attempts, entrancePlacement, doorSeals);
+    }
+
+    /** Every cell in a wall-type frontier's own fill footprint, in local planning space -- same
+     *  shape {@code connector.ConnectorPointFill#fillWall} marks out in the real world (a door's own
+     *  2 cells, {@code INCLUDED here} -- unlike that method's own footprint helper, which exists
+     *  purely to skip them -- plus the surrounding buffer area for a MEDIUM/LARGE {@code
+     *  ConnectorPointSize}), so the door-sealing pass above can treat every one of them uniformly
+     *  instead of handling the door separately from its own buffer cells. A no-op footprint (just
+     *  the 2 door cells) for {@code SMALL}. */
+    private static List<LocalPos> wallFootprintCells(Frontier frontier) {
+        List<LocalPos> result = new ArrayList<>();
+        int footprint = frontier.size().footprint();
+        Direction side = frontier.facing().get().getClockWise();
+        int half = Math.max(footprint / 2, 0);
+        for (int s = -half; s <= half; s++) {
+            for (int y = 0; y < Math.max(footprint, 2); y++) {
+                result.add(new LocalPos(frontier.worldForward() + side.getStepX() * s,
+                        frontier.worldLateral() + side.getStepZ() * s, frontier.worldY() + y));
+            }
+        }
+        return result;
     }
 
     /** Every real cell any placement would stamp, keyed by its final (pre-world-translation) local
