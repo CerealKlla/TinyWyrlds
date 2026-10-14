@@ -102,7 +102,16 @@ public final class WyrldPrintCapture {
             minZ = Math.min(minZ, point.pos.getZ());
             maxZ = Math.max(maxZ, point.pos.getZ());
             boxMinY = Math.min(boxMinY, point.pos.getY());
-            boxMaxY = Math.max(boxMaxY, point.pos.getY() + (point.wall ? 1 : 0));
+            // +1 cell of real captured headroom above the point's own top cell (the upper door
+            // half for a wall point, the point's own single cell for a floor point) -- without
+            // this, a connector point sitting at the very top of a piece's own bounding box (e.g.
+            // the upper end of a vertical shaft, with nothing else built higher) has no captured
+            // cell at all directly above it. WyrldPrintValidator's two-tall clearance check then
+            // can't tell "genuinely open" apart from "outside what was ever captured" and
+            // conservatively treats both as blocked -- a real false failure found live on every
+            // Ladder Shaft/Trapdoor Shaft (floor points) piece, even though the real stamped world
+            // has open air there the whole time.
+            boxMaxY = Math.max(boxMaxY, point.pos.getY() + (point.wall ? 2 : 1));
         }
         if (!anyContent && detectedPoints.isEmpty()) {
             return CaptureResult.error("Nothing built in the crafting zone to save.");

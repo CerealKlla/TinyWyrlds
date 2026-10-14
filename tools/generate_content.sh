@@ -52,6 +52,7 @@ save_piece() {
 
 echo "=== Force-loading crafting zone chunks ==="
 RCP "execute in tinywyrlds:wyrld_space run forceload add -80 -60 80 60"
+sleep 3 # give freshly-loaded chunks a moment to fully settle before building on them
 
 # ---------------------------------------------------------------------------
 # ROOMS -- 5 per theme x 5 themes = 25
@@ -81,7 +82,7 @@ room_wizard_tower() {
   RC "fill $((X0+1)) $Y0 $((z1-1)) $((X0+1)) $((Y0+1)) $((z1-1)) minecraft:bookshelf"
   RC "setblock $((X0+3)) $Y0 $((Z0-1)) minecraft:brewing_stand[has_bottle_0=false,has_bottle_1=false,has_bottle_2=false]"
   RC "setblock $((X0+3)) $Y0 $((Z0+1)) minecraft:enchanting_table"
-  RC "setblock $((X0+4+idx%2)) $Y0 $Z0 minecraft:lectern[facing=south,has_book=true]"
+  RC "setblock $((X0+4+idx%2)) $Y0 $((Z0+1)) minecraft:lectern[facing=south,has_book=true]"
   RC "setblock $((X0+2)) $((Y0+1)) $((Z0-2)) minecraft:purple_candle[candles=1,lit=true]"
   RC "setblock $((X0+2)) $((Y0+1)) $((Z0+2)) minecraft:purple_candle[candles=1,lit=true]"
   save_piece "Wizard Tower Interior $idx" room
@@ -162,7 +163,7 @@ straight_hallway() {
   RC "fill $X0 $((Y0+2)) $((Z0-1)) $x1 $((Y0+2)) $((Z0+1)) $wallBlock"
   RC "fill $X0 $Y0 $((Z0-1)) $x1 $((Y0+1)) $((Z0-1)) $wallBlock"
   RC "fill $X0 $Y0 $((Z0+1)) $x1 $((Y0+1)) $((Z0+1)) $wallBlock"
-  RC "setblock $((X0+len/2)) $((Y0+1)) $Z0 minecraft:lantern[hanging=true,waterlogged=false]"
+  RC "setblock $((X0+len/2)) $((Y0+1)) $Z0 minecraft:wall_torch[facing=south]"
   wall_conn "$X0" "$Y0" "$Z0" west "$size"
   wall_conn "$x1" "$Y0" "$Z0" east "$size"
   save_piece "$name" connector
@@ -216,37 +217,46 @@ l_bend_hallway() {
 
 hidden_piston_door() {
   local name=$1
-  # A short hallway whose far "wall" is actually a sticky-piston-retractable false wall,
-  # triggered by a lever a step before it -- flips to air on pull, closes again on push.
-  RC "fill $X0 $((Y0-1)) $((Z0-1)) $((X0+5)) $((Y0-1)) $((Z0+1)) minecraft:cobblestone"
-  RC "fill $X0 $((Y0+2)) $((Z0-1)) $((X0+5)) $((Y0+2)) $((Z0+1)) minecraft:cobblestone"
-  RC "fill $X0 $Y0 $((Z0-1)) $((X0+5)) $((Y0+1)) $((Z0-1)) minecraft:cobblestone"
-  RC "fill $X0 $Y0 $((Z0+1)) $((X0+5)) $((Y0+1)) $((Z0+1)) minecraft:cobblestone"
-  RC "setblock $((X0+5)) $Y0 $Z0 minecraft:sticky_piston[facing=east,extended=true]"
-  RC "setblock $((X0+6)) $Y0 $Z0 minecraft:cobblestone"
-  RC "setblock $((X0+5)) $((Y0+1)) $Z0 minecraft:sticky_piston[facing=east,extended=true]"
-  RC "setblock $((X0+6)) $((Y0+1)) $Z0 minecraft:cobblestone"
+  # A short hallway with a sticky-piston mechanism flanking it and a lever nearby, suggesting a
+  # closeable hidden door. Redesigned (2026-10-14, found live + confirmed by WyrldPrintValidator):
+  # the original version placed the pistons "extended" with a separately hand-placed static block
+  # standing in for the pushed block -- raw /setblock never actually runs a real piston push, so
+  # that block just permanently blocked the passage with no way to open it. This version captures
+  # the pistons mounted sideways into the wall plane itself (retracted, cosmetic only) so the
+  # passage is genuinely open by default; a real, actuated push/pull mechanism needs a true
+  # redstone event to trigger, not just placed blockstates, and is flagged follow-up work.
+  RC "fill $X0 $((Y0-1)) $((Z0-1)) $((X0+6)) $((Y0-1)) $((Z0+1)) minecraft:cobblestone"
+  RC "fill $X0 $((Y0+2)) $((Z0-1)) $((X0+6)) $((Y0+2)) $((Z0+1)) minecraft:cobblestone"
+  RC "fill $X0 $Y0 $((Z0-1)) $((X0+6)) $((Y0+1)) $((Z0-1)) minecraft:cobblestone"
+  RC "fill $X0 $Y0 $((Z0+1)) $((X0+6)) $((Y0+1)) $((Z0+1)) minecraft:cobblestone"
+  RC "setblock $((X0+5)) $Y0 $((Z0-1)) minecraft:sticky_piston[facing=south,extended=false]"
+  RC "setblock $((X0+5)) $((Y0+1)) $((Z0-1)) minecraft:sticky_piston[facing=south,extended=false]"
   RC "setblock $((X0+4)) $((Y0+1)) $((Z0-1)) minecraft:lever[face=wall,facing=south,powered=false]"
-  RC "fill $((X0+4)) $Y0 $Z0 $((X0+4)) $((Y0+1)) $Z0 minecraft:redstone_wire"
-  RC "setblock $((X0+5)) $((Y0-1)) $Z0 minecraft:redstone_block"
   wall_conn "$X0" "$Y0" "$Z0" west small
-  wall_conn "$((X0+7))" "$Y0" "$Z0" east small
+  wall_conn "$((X0+6))" "$Y0" "$Z0" east small
   save_piece "$name" connector
 }
 
 mixed_bend_shaft() {
   local name=$1
-  # Enter horizontally, climb a short ladder up to a raised horizontal exit -- a genuine
-  # horizontal+vertical mix, not just a straight line.
-  RC "fill $X0 $((Y0-1)) $((Z0-1)) $((X0+3)) $((Y0-1)) $((Z0+1)) minecraft:andesite"
-  RC "fill $X0 $((Y0+5)) $((Z0-1)) $((X0+3)) $((Y0+5)) $((Z0+1)) minecraft:andesite"
-  RC "fill $X0 $Y0 $((Z0-1)) $((X0+3)) $((Y0+4)) $((Z0-1)) minecraft:andesite"
-  RC "fill $X0 $Y0 $((Z0+1)) $((X0+3)) $((Y0+4)) $((Z0+1)) minecraft:andesite"
-  RC "fill $((X0+3)) $Y0 $Z0 $((X0+3)) $((Y0+3)) $Z0 minecraft:andesite"
-  RC "fill $((X0+1)) $((Y0+1)) $Z0 $((X0+2)) $((Y0+4)) $Z0 minecraft:andesite"
-  RC "fill $X0 $((Y0+1)) $Z0 $X0 $((Y0+4)) $Z0 minecraft:ladder[facing=south,waterlogged=false]"
+  # Enter horizontally, climb a ladder up a genuinely clear shaft, exit horizontally again --
+  # a real horizontal+vertical mix. Redesigned (2026-10-14) after the first version's climb led
+  # into a solid wall (found live, confirmed by WyrldPrintValidator): that version's "force a
+  # detour" wall also covered the one column the ladder actually climbed. This version keeps the
+  # climbing column (shaftX, Z0) and the corridor it connects to completely open from floor to
+  # ceiling -- walls only ever go on the three OTHER sides of the shaft.
+  local shaftX=$((X0+3))
+  local topY=$((Y0+6))
+  RC "fill $X0 $((Y0-1)) $((Z0-1)) $shaftX $((Y0-1)) $((Z0+1)) minecraft:andesite"
+  RC "fill $X0 $Y0 $((Z0-1)) $((shaftX-1)) $((Y0+1)) $((Z0-1)) minecraft:andesite"
+  RC "fill $X0 $Y0 $((Z0+1)) $((shaftX-1)) $((Y0+1)) $((Z0+1)) minecraft:andesite"
+  RC "fill $X0 $((Y0+2)) $((Z0-1)) $((shaftX-1)) $((Y0+2)) $((Z0+1)) minecraft:andesite"
+  RC "fill $shaftX $Y0 $((Z0-1)) $shaftX $topY $((Z0-1)) minecraft:andesite"
+  RC "fill $shaftX $Y0 $((Z0+1)) $shaftX $topY $((Z0+1)) minecraft:andesite"
+  RC "fill $((shaftX+1)) $Y0 $((Z0-1)) $((shaftX+1)) $topY $((Z0+1)) minecraft:andesite"
+  RC "fill $shaftX $((Y0+1)) $Z0 $shaftX $((topY-1)) $Z0 minecraft:ladder[facing=south,waterlogged=false]"
   wall_conn "$X0" "$Y0" "$Z0" west small
-  wall_conn "$((X0+3))" "$((Y0+4))" "$Z0" east small
+  wall_conn "$((shaftX+1))" "$topY" "$Z0" east small
   save_piece "$name" connector
 }
 

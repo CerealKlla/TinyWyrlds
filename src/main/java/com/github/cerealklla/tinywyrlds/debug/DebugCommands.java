@@ -12,6 +12,7 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintPlacement;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintRecord;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintStorage;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintType;
+import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintValidator;
 import com.github.cerealklla.tinywyrlds.wyrldprint.generate.OneOffGenerator;
 
 import net.minecraft.commands.CommandSourceStack;
@@ -58,7 +59,9 @@ public final class DebugCommands {
                         .then(Commands.literal("list")
                                 .executes(ctx -> listWyrldPrints(ctx.getSource())))
                         .then(Commands.literal("clear")
-                                .executes(ctx -> clearCraftZone(ctx.getSource()))))
+                                .executes(ctx -> clearCraftZone(ctx.getSource())))
+                        .then(Commands.literal("validateall")
+                                .executes(ctx -> validateAllWyrldPrints(ctx.getSource()))))
                 .then(Commands.literal("generate")
                         .then(Commands.argument("minRooms", IntegerArgumentType.integer(1))
                                 .then(Commands.argument("maxRooms", IntegerArgumentType.integer(1))
@@ -117,6 +120,21 @@ public final class DebugCommands {
         WyrldPrintPlacement.clearCraftingZone(level);
         source.sendSuccess(() -> Component.literal("Cleared the crafting zone."), false);
         return 1;
+    }
+
+    private static int validateAllWyrldPrints(CommandSourceStack source) {
+        int broken = 0;
+        for (WyrldPrintRecord record : WyrldPrintStorage.get().listAll()) {
+            WyrldPrintValidator.Result result = WyrldPrintValidator.checkConnectivity(record);
+            if (!result.connected()) {
+                broken++;
+            }
+            String line = (result.connected() ? "OK   " : "FAIL ") + record.name() + " (" + record.type() + "): " + result.message();
+            com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(line);
+        }
+        int finalBroken = broken;
+        source.sendSuccess(() -> Component.literal("Validated all WyrldPrints -- " + finalBroken + " broken (see server log for the full per-piece report)."), false);
+        return broken;
     }
 
     private static int listWyrldPrints(CommandSourceStack source) {
