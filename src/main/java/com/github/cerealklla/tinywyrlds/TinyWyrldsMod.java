@@ -3,6 +3,9 @@ package com.github.cerealklla.tinywyrlds;
 import com.github.cerealklla.tinywyrlds.debug.DebugCommands;
 import com.github.cerealklla.tinywyrlds.instance.WyrldLifecycleTicker;
 import com.github.cerealklla.tinywyrlds.registration.ModAttachments;
+import com.github.cerealklla.tinywyrlds.registration.ModBlocks;
+import com.github.cerealklla.tinywyrlds.registration.ModItems;
+import com.github.cerealklla.tinywyrlds.space.AdvancementBlocker;
 import com.github.cerealklla.tinywyrlds.voxel.VoxelLockListener;
 import com.github.cerealklla.tinywyrlds.wyrldprint.CreativeZoneTicker;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintAreaSetupListener;
@@ -25,6 +28,8 @@ public class TinyWyrldsMod {
 
     public TinyWyrldsMod(IEventBus modEventBus, ModContainer modContainer) {
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
+        ModBlocks.BLOCKS.register(modEventBus);
+        ModItems.ITEMS.register(modEventBus);
 
         modEventBus.addListener(this::commonSetup);
 
@@ -32,6 +37,7 @@ public class TinyWyrldsMod {
         NeoForge.EVENT_BUS.register(new WyrldLifecycleTicker());
         NeoForge.EVENT_BUS.register(new WyrldPrintAreaSetupListener());
         NeoForge.EVENT_BUS.register(new CreativeZoneTicker());
+        NeoForge.EVENT_BUS.register(new AdvancementBlocker());
         NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) -> DebugCommands.register(event.getDispatcher()));
     }
 
