@@ -84,10 +84,6 @@ public final class OneOffGenerator {
 
     private static final int MARGIN = 5;
     private static final double PREFER_CONNECTOR_CHANCE = 0.65;
-    /** How far the door-sealing pass scans outward (through/sideways) looking for real material --
-     *  deep enough to clear a LARGE {@code ConnectorPointSize}'s own 2-cell buffer-air gap
-     *  (footprint 5, so (5-1)/2 = 2) with margin to spare. */
-    private static final int SEAL_SEARCH_DEPTH = 4;
     private static final Rotation[] ALL_ROTATIONS = {Rotation.NONE, Rotation.CLOCKWISE_90, Rotation.CLOCKWISE_180, Rotation.COUNTERCLOCKWISE_90};
 
     /** @return the created Wyrld instance (plus its real spawn position, if an ENTRANCE was
@@ -118,6 +114,7 @@ public final class OneOffGenerator {
         return plan.placements().stream().map(p -> p.record().type() + ":" + p.record().name()).toList();
     }
 
+    @SuppressWarnings("deprecation")
     private static PlanResult planPlacements(int minRooms, int maxRooms) {
         List<WyrldPrintRecord> rooms = WyrldPrintStorage.get().listAll().stream()
                 .filter(r -> r.type() == WyrldPrintType.ROOM).toList();
@@ -250,23 +247,22 @@ public final class OneOffGenerator {
         // enough to already-placed structure that nothing else can occupy the remaining gap)
         // shouldn't stand out as a real, functional, leads-nowhere door. Explicit user spec,
         // 2026-10-14: "I think in that case it should replace the Connector with whatever blocks
-        // are surrounding it." For each door half, tries real material in this priority order:
-        // (1) straight through the door, along its own outward `facing` -- real nearby structure,
-        // when there genuinely is any; (2/3) sideways, perpendicular to facing
-        // (`getClockWise()`/`getCounterClockWise()`, same convention `ConnectorPointFill` already
-        // uses for its fill footprint) -- the connector's *own* wall material, for a door genuinely
-        // open to empty Wyrld-space void (confirmed live: "about 5 or 6 Connectors... didn't get
-        // blocked off either so it's just open to the outside" -- an immediate-neighbor-only sample
-        // found nothing, so sealing silently no-oped). Each direction is scanned outward up to
-        // {@link #SEAL_SEARCH_DEPTH} cells, not just 1 step -- a MEDIUM/LARGE `ConnectorPointSize`
-        // deliberately leaves 1-2 cells of buffer air flanking its own door (same footprint
-        // {@code ConnectorPointFill}'s own glass fill uses), so the piece's real wall sits further
-        // out than its immediate neighbor (confirmed live via a second report of the exact same
-        // symptom persisting after the first, immediate-neighbor-only version of this fix -- traced
-        // directly to a real saved connector's own captured geometry, not a hypothesis). Only once
-        // all three directions come back completely empty does a cell fall through to air. Scoped
-        // to wall-type only -- a floor point has no stored facing to know which direction "through
-        // the door" even means.
+        // are surrounding it." This went through three rounds of directional/depth-scanning
+        // heuristics first (sample the real neighboring world state through the door, then
+        // sideways, then scanned outward several cells, then across the whole fill footprint
+        // instead of just the door) -- each one fixed a real, live-confirmed gap and then another
+        // live-confirmed gap turned up anyway, because "look nearby and hope something useful is
+        // there" has an edge case for every possible nearby layout. Explicit user feedback, same
+        // day: "If you think your design will work fine, but it's still not working" -- replaced
+        // entirely with something that can't have a geometric edge case because it doesn't look
+        // around at all: every unresolved cell in the connector's own fill footprint gets sealed
+        // with that *same connector piece's own* most common solid wall material (`
+        // representativeWallMaterial`, computed directly from its own saved cells, rotated to match
+        // this placement) -- always available for any normally-built connector, regardless of what
+        // is or isn't nearby. Scoped to wall-type only -- a floor point has no stored facing to
+        // know "through the door," and this version doesn't need that concept at all anymore, but a
+        // floor connector's own vertical shaft shape makes an air opening far less likely to read
+        // as a dead end in the first place.
         Map<LocalPos, BlockState> doorSeals = new HashMap<>();
         if (!unresolvedFrontiers.isEmpty()) {
             Map<LocalPos, BlockState> realBlocks = buildRealBlockMap(placements);
@@ -274,44 +270,47 @@ public final class OneOffGenerator {
                 if (frontier.ownerType() != WyrldPrintType.CONNECTOR || !frontier.wall() || frontier.facing().isEmpty()) {
                     continue;
                 }
-                Direction outward = frontier.facing().get();
-                Direction side = outward.getClockWise();
-                int[][] candidateDirections = {
-                        {outward.getStepX(), outward.getStepZ()},
-                        {side.getStepX(), side.getStepZ()},
-                        {-side.getStepX(), -side.getStepZ()},
-                };
-                // Seal every cell in the point's own fill footprint (same shape
-                // ConnectorPointFill.fillWall marks out for a MEDIUM/LARGE size -- a door's own 2
-                // cells plus the surrounding buffer area), not just the door itself -- real user
-                // report, screenshots showing open gaps framing an otherwise-sealed door: the buffer
-                // cells are air in the captured record from the start (never the door's own
-                // problem), and were never touched by the door-only version of this fix.
+                BlockState material = representativeWallMaterial(frontier.ownerPlacement().record());
+                if (material == null) {
+                    continue; // degenerate connector with no real solid material anywhere in its own geometry -- falls back to air.
+                }
+                BlockState rotated = material.rotate(frontier.ownerPlacement().rotation());
                 for (LocalPos cell : wallFootprintCells(frontier)) {
-                    if (realBlocks.get(cell) != null && !realBlocks.get(cell).isAir()) {
+                    BlockState existing = realBlocks.get(cell);
+                    if (existing != null && !existing.isAir()) {
                         continue; // already real content (the player built over the suggestion) -- leave it alone.
                     }
-                    for (int[] direction : candidateDirections) {
-                        BlockState sealState = null;
-                        for (int dist = 1; dist <= SEAL_SEARCH_DEPTH; dist++) {
-                            LocalPos neighbor = new LocalPos(cell.forward() + direction[0] * dist,
-                                    cell.lateral() + direction[1] * dist, cell.y());
-                            BlockState candidate = realBlocks.get(neighbor);
-                            if (candidate != null && !candidate.isAir()) {
-                                sealState = candidate;
-                                break;
-                            }
-                        }
-                        if (sealState != null) {
-                            doorSeals.put(cell, sealState);
-                            break;
-                        }
-                    }
+                    doorSeals.put(cell, rotated);
                 }
             }
         }
 
         return new PlanResult(placements, roomsPlaced, targetRooms, attempts, entrancePlacement, doorSeals);
+    }
+
+    /** The most common real (non-air, non-connector-artifact) {@code BlockState} among a
+     *  WyrldPrint's own captured cells -- used to seal an unresolved connector door with the
+     *  piece's own wall material, deliberately independent of whatever is or isn't nearby in the
+     *  final generated layout (see the door-sealing pass's own doc for why). {@code null} only for
+     *  a genuinely degenerate connector with no solid material anywhere in its own geometry. */
+    private static BlockState representativeWallMaterial(WyrldPrintRecord record) {
+        Map<BlockState, Integer> counts = new HashMap<>();
+        for (WyrldPrintCell cell : record.cells()) {
+            BlockState state = cell.state();
+            if (state.isAir() || isConnectorArtifact(state)) {
+                continue;
+            }
+            counts.merge(state, 1, Integer::sum);
+        }
+        BlockState best = null;
+        int bestCount = -1;
+        for (Map.Entry<BlockState, Integer> entry : counts.entrySet()) {
+            if (entry.getValue() > bestCount) {
+                best = entry.getKey();
+                bestCount = entry.getValue();
+            }
+        }
+        return best;
     }
 
     /** Every cell in a wall-type frontier's own fill footprint, in local planning space -- same
@@ -581,7 +580,7 @@ public final class OneOffGenerator {
             int worldLateral = placement.originLateral() + rotatedFL[1];
             int worldY = placement.originY() + point.relY();
             Optional<Direction> worldFacing = point.facing().map(f -> placement.rotation().rotate(f));
-            frontiers.add(new Frontier(worldForward, worldLateral, worldY, point.wall(), worldFacing, placement.record().type(), point.size()));
+            frontiers.add(new Frontier(worldForward, worldLateral, worldY, point.wall(), worldFacing, placement.record().type(), point.size(), placement));
         }
     }
 
@@ -698,9 +697,11 @@ public final class OneOffGenerator {
      *  connectors always sitting between two rooms (see the main planning loop). {@code size} is
      *  the connector point's own gauge -- only a candidate point of the exact same {@code
      *  ConnectorPointSize} is ever tried against this frontier (explicit user spec, 2026-10-14:
-     *  "enforce connector size matches" -- a small door can no longer join a large one). */
+     *  "enforce connector size matches" -- a small door can no longer join a large one). {@code
+     *  ownerPlacement} is the real placement this point belongs to -- used by the door-sealing pass
+     *  to find the connector's own wall material when the point never gets consumed. */
     private record Frontier(int worldForward, int worldLateral, int worldY, boolean wall, Optional<Direction> facing,
-                             WyrldPrintType ownerType, ConnectorPointSize size) {
+                             WyrldPrintType ownerType, ConnectorPointSize size, Placement ownerPlacement) {
     }
 
     /** A single cell position in the shared local (forward, lateral, Y) planning space every
