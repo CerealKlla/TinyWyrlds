@@ -96,7 +96,7 @@ public final class OneOffGenerator {
         com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
                 "OneOffGenerator: placed {} piece(s) ({} room(s), target {}) in {} attempt(s)",
                 plan.placements().size(), plan.roomsPlaced(), plan.targetRooms(), plan.attempts());
-        return stamp(server, plan.placements(), plan.entrancePlacement());
+        return stamp(server, plan.placements(), plan.entrancePlacement(), plan.doorSeals());
     }
 
     /** Debug-only (see {@code DebugCommands}'s {@code selectiontest}): runs the exact same planning
@@ -146,6 +146,12 @@ public final class OneOffGenerator {
         List<Placement> placements = new ArrayList<>();
         List<Frontier> openFrontiers = new ArrayList<>();
         Map<LocalPos, Boolean> occupied = new HashMap<>();
+        // Every frontier that genuinely never got resolved -- not just "closing pass never got to
+        // it," but "every candidate (connector, multi-door room, endcap room) was tried and nothing
+        // fit," most often a corridor curling back close enough to already-placed structure that
+        // nothing else can occupy the gap. Fed into the door-sealing pass below instead of being
+        // silently discarded.
+        List<Frontier> unresolvedFrontiers = new ArrayList<>();
 
         // "Treated same as a room, but there is only 1" (explicit user spec, 2026-10-14): an
         // ENTRANCE, when any are saved, is always the guaranteed anchor/first piece -- never a
@@ -195,7 +201,8 @@ public final class OneOffGenerator {
                 placed = tryPlace(frontier, shuffled(endcapRooms, random), occupied, random);
             }
             if (placed == null) {
-                continue; // couldn't grow here this attempt -- frontier goes back in the closing pass below.
+                unresolvedFrontiers.add(frontier); // connector, multi-door room, and endcap room all failed -- genuinely nothing fits here.
+                continue;
             }
             placements.add(placed);
             occupied.putAll(cellStates(placed));
@@ -218,11 +225,13 @@ public final class OneOffGenerator {
             closingAttempts++;
             Frontier frontier = openFrontiers.remove(random.nextInt(openFrontiers.size()));
             if (endcapRooms.isEmpty()) {
-                continue; // no 1-door room saved at all -- falls back to a real closed door, same as before.
+                unresolvedFrontiers.add(frontier); // no 1-door room saved at all.
+                continue;
             }
             Placement placed = tryPlace(frontier, shuffled(endcapRooms, random), occupied, random);
             if (placed == null) {
-                continue; // couldn't fit any endcap room here either -- same fallback.
+                unresolvedFrontiers.add(frontier); // couldn't fit any endcap room here either.
+                continue;
             }
             placements.add(placed);
             occupied.putAll(cellStates(placed));
@@ -232,7 +241,56 @@ public final class OneOffGenerator {
         }
         attempts += closingAttempts;
 
-        return new PlanResult(placements, roomsPlaced, targetRooms, attempts, entrancePlacement);
+        // Door sealing: a wall-type CONNECTOR frontier that truly never found anything to attach
+        // to (the "curled in on itself" case, confirmed live -- a corridor looping back close
+        // enough to already-placed structure that nothing else can occupy the remaining gap)
+        // shouldn't stand out as a real, functional, leads-nowhere door. Explicit user spec,
+        // 2026-10-14: "I think in that case it should replace the Connector with whatever blocks
+        // are surrounding it." Samples the real block immediately through the door (1 step along
+        // its own outward facing, same direction convention as the touch-not-overlap fix) from the
+        // now-final placements list, per door half, and hands the override to stamp() to use
+        // instead of air. Scoped to wall-type only -- a floor point has no stored facing to know
+        // which direction "through the door" even means, so it keeps the existing air fallback.
+        Map<LocalPos, BlockState> doorSeals = new HashMap<>();
+        if (!unresolvedFrontiers.isEmpty()) {
+            Map<LocalPos, BlockState> realBlocks = buildRealBlockMap(placements);
+            for (Frontier frontier : unresolvedFrontiers) {
+                if (frontier.ownerType() != WyrldPrintType.CONNECTOR || !frontier.wall() || frontier.facing().isEmpty()) {
+                    continue;
+                }
+                Direction outward = frontier.facing().get();
+                for (int dy = 0; dy <= 1; dy++) {
+                    LocalPos doorCell = new LocalPos(frontier.worldForward(), frontier.worldLateral(), frontier.worldY() + dy);
+                    LocalPos neighbor = new LocalPos(frontier.worldForward() + outward.getStepX(),
+                            frontier.worldLateral() + outward.getStepZ(), frontier.worldY() + dy);
+                    BlockState neighborState = realBlocks.get(neighbor);
+                    if (neighborState != null && !neighborState.isAir()) {
+                        doorSeals.put(doorCell, neighborState);
+                    }
+                }
+            }
+        }
+
+        return new PlanResult(placements, roomsPlaced, targetRooms, attempts, entrancePlacement, doorSeals);
+    }
+
+    /** Every real cell any placement would stamp, keyed by its final (pre-world-translation) local
+     *  position, keeping the actual {@code BlockState} rather than just a solid/air flag -- used
+     *  only by the door-sealing pass above, built fresh from the finished plan rather than
+     *  repurposing the collision-planning {@code occupied} map, to keep that delicate, already
+     *  carefully-tuned logic untouched. */
+    @SuppressWarnings("deprecation")
+    private static Map<LocalPos, BlockState> buildRealBlockMap(List<Placement> placements) {
+        Map<LocalPos, BlockState> result = new HashMap<>();
+        for (Placement placement : placements) {
+            for (WyrldPrintCell cell : placement.record().cells()) {
+                int[] rotatedFL = rotateForwardLateral(cell.relForward(), cell.relLateral(), placement.rotation());
+                LocalPos pos = new LocalPos(placement.originForward() + rotatedFL[0], placement.originLateral() + rotatedFL[1],
+                        placement.originY() + cell.relY());
+                result.put(pos, cell.state().rotate(placement.rotation()));
+            }
+        }
+        return result;
     }
 
     /** Diagnostic logging added 2026-10-14 alongside {@code tryPlace}'s own collision-sample
@@ -250,7 +308,7 @@ public final class OneOffGenerator {
     }
 
     private record PlanResult(List<Placement> placements, int roomsPlaced, int targetRooms, int attempts,
-                               Placement entrancePlacement) {
+                               Placement entrancePlacement, Map<LocalPos, BlockState> doorSeals) {
     }
 
     /** @param spawnPoints every real-world spot a player could land -- the ENTRANCE's own captured
@@ -479,7 +537,8 @@ public final class OneOffGenerator {
      *  context-aware overload -- not needed here, since every block this mod ever captures
      *  (doors, cobblestone, wool, candles, etc.) rotates correctly with no world context. */
     @SuppressWarnings("deprecation")
-    private static GenerateResult stamp(MinecraftServer server, List<Placement> placements, Placement entrancePlacement) {
+    private static GenerateResult stamp(MinecraftServer server, List<Placement> placements, Placement entrancePlacement,
+                                         Map<LocalPos, BlockState> doorSeals) {
         int minF = Integer.MAX_VALUE, maxF = Integer.MIN_VALUE, minL = Integer.MAX_VALUE, maxL = Integer.MIN_VALUE;
         for (Placement placement : placements) {
             int[] box = worldBoundingBox(placement);
@@ -504,11 +563,20 @@ public final class OneOffGenerator {
         for (Placement placement : placements) {
             for (WyrldPrintCell cell : placement.record().cells()) {
                 int[] rotatedFL = rotateForwardLateral(cell.relForward(), cell.relLateral(), placement.rotation());
-                int worldX = worldForwardOffset + placement.originForward() + rotatedFL[0];
-                int worldZ = worldLateralOffset + placement.originLateral() + rotatedFL[1];
-                int worldY = WyrldManager.BASELINE_Y + placement.originY() + cell.relY();
-                BlockState rotated = cell.state().rotate(placement.rotation());
-                BlockState finalState = isConnectorArtifact(rotated) ? Blocks.AIR.defaultBlockState() : rotated;
+                int localForward = placement.originForward() + rotatedFL[0];
+                int localLateral = placement.originLateral() + rotatedFL[1];
+                int localY = placement.originY() + cell.relY();
+                int worldX = worldForwardOffset + localForward;
+                int worldZ = worldLateralOffset + localLateral;
+                int worldY = WyrldManager.BASELINE_Y + localY;
+                BlockState seal = doorSeals.get(new LocalPos(localForward, localLateral, localY));
+                BlockState finalState;
+                if (seal != null) {
+                    finalState = seal;
+                } else {
+                    BlockState rotated = cell.state().rotate(placement.rotation());
+                    finalState = isConnectorArtifact(rotated) ? Blocks.AIR.defaultBlockState() : rotated;
+                }
                 pending.add(new PendingCell(new BlockPos(worldX, worldY, worldZ), finalState, worldY));
             }
         }
@@ -536,7 +604,10 @@ public final class OneOffGenerator {
      *  has used a point to join two pieces, the real stamped result should just be an open passage
      *  (air) there instead. In practice the glass half of this is already a no-op for any normally
      *  captured record (`WyrldPrintCapture` already clears it back to air at save time), but this
-     *  check stays defense-in-depth rather than relying on that alone. */
+     *  check stays defense-in-depth rather than relying on that alone. Only reached for a door cell
+     *  that isn't already overridden by {@code doorSeals} -- a door that never found anything to
+     *  join gets real neighboring material instead of air (see {@code planPlacements}'s own
+     *  door-sealing pass). */
     private static boolean isConnectorArtifact(BlockState state) {
         if (state.getBlock() instanceof WallConnectorPointBlock || state.getBlock() instanceof FloorConnectorPointBlock) {
             return true;
