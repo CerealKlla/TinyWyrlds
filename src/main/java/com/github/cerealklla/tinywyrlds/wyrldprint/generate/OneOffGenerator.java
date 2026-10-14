@@ -68,11 +68,14 @@ import net.minecraft.world.level.block.state.BlockState;
  * ascending world Y together (not just within one piece), so a door's upper half always finds its
  * support already placed regardless of which piece placed it.
  *
+ * <p>{@link com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorPointSize} must match
+ * exactly between two joining points (explicit user spec, 2026-10-14: "enforce connector size
+ * matches") -- {@code Frontier} carries the gauge of the point it came from, and {@code tryPlace}
+ * only ever considers a candidate point of that exact same size, for both wall and floor kinds.
+ *
  * <p><b>Honest scope</b>: this does not yet read a WyrldRecipe (loot pools, quest tie-ins -- none
- * of that exists), and doesn't try to match {@link com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorPointSize}
- * between two points -- any wall point can join any other wall point regardless of size, same for
- * floor. A size-aware match (and a recipe-driven room/connector pool) is real, flagged follow-up
- * work, not an oversight.
+ * of that exists yet); a recipe-driven room/connector pool (rather than uniform random selection)
+ * is real, flagged follow-up work, not an oversight.
  */
 public final class OneOffGenerator {
 
@@ -281,7 +284,8 @@ public final class OneOffGenerator {
         int collisions = 0;
         boolean sampleLogged = false;
         for (WyrldPrintRecord candidate : candidates) {
-            List<WyrldPrintPoint> ownPoints = shuffled(candidate.points().stream().filter(p -> p.wall() == frontier.wall()).toList(), random);
+            List<WyrldPrintPoint> ownPoints = shuffled(candidate.points().stream()
+                    .filter(p -> p.wall() == frontier.wall() && p.size() == frontier.size()).toList(), random);
             if (ownPoints.isEmpty()) {
                 noMatchingKindPoint++;
                 continue;
@@ -447,7 +451,7 @@ public final class OneOffGenerator {
             int worldLateral = placement.originLateral() + rotatedFL[1];
             int worldY = placement.originY() + point.relY();
             Optional<Direction> worldFacing = point.facing().map(f -> placement.rotation().rotate(f));
-            frontiers.add(new Frontier(worldForward, worldLateral, worldY, point.wall(), worldFacing, placement.record().type()));
+            frontiers.add(new Frontier(worldForward, worldLateral, worldY, point.wall(), worldFacing, placement.record().type(), point.size()));
         }
     }
 
@@ -548,8 +552,12 @@ public final class OneOffGenerator {
     }
 
     /** {@code ownerType} is the type of the piece this point belongs to -- used to enforce
-     *  connectors always sitting between two rooms (see the main planning loop). */
-    private record Frontier(int worldForward, int worldLateral, int worldY, boolean wall, Optional<Direction> facing, WyrldPrintType ownerType) {
+     *  connectors always sitting between two rooms (see the main planning loop). {@code size} is
+     *  the connector point's own gauge -- only a candidate point of the exact same {@code
+     *  ConnectorPointSize} is ever tried against this frontier (explicit user spec, 2026-10-14:
+     *  "enforce connector size matches" -- a small door can no longer join a large one). */
+    private record Frontier(int worldForward, int worldLateral, int worldY, boolean wall, Optional<Direction> facing,
+                             WyrldPrintType ownerType, ConnectorPointSize size) {
     }
 
     /** A single cell position in the shared local (forward, lateral, Y) planning space every
