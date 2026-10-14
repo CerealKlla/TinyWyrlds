@@ -56,7 +56,9 @@ public final class DebugCommands {
                                         .executes(ctx -> loadWyrldPrint(ctx.getSource(),
                                                 StringArgumentType.getString(ctx, "name")))))
                         .then(Commands.literal("list")
-                                .executes(ctx -> listWyrldPrints(ctx.getSource()))))
+                                .executes(ctx -> listWyrldPrints(ctx.getSource())))
+                        .then(Commands.literal("clear")
+                                .executes(ctx -> clearCraftZone(ctx.getSource()))))
                 .then(Commands.literal("generate")
                         .then(Commands.argument("minRooms", IntegerArgumentType.integer(1))
                                 .then(Commands.argument("maxRooms", IntegerArgumentType.integer(1))
@@ -66,8 +68,9 @@ public final class DebugCommands {
     }
 
     private static int saveWyrldPrint(CommandSourceStack source, String name, String typeArg) {
-        if (!(source.getEntity() instanceof ServerPlayer player) || !(player.level() instanceof ServerLevel level)) {
-            source.sendFailure(Component.literal("Only a player can run this."));
+        ServerLevel level = source.getServer().getLevel(com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension.KEY);
+        if (level == null) {
+            source.sendFailure(Component.literal("Wyrld Space isn't loaded."));
             return 0;
         }
         WyrldPrintType type;
@@ -77,7 +80,8 @@ public final class DebugCommands {
             source.sendFailure(Component.literal("Type must be 'room' or 'connector'."));
             return 0;
         }
-        WyrldPrintCapture.CaptureResult result = WyrldPrintCapture.capture(level, name, player.getName().getString(), type);
+        String author = source.getEntity() instanceof ServerPlayer player ? player.getName().getString() : "Generator";
+        WyrldPrintCapture.CaptureResult result = WyrldPrintCapture.capture(level, name, author, type);
         if (result.error().isPresent()) {
             source.sendFailure(Component.literal(result.error().get()));
             return 0;
@@ -89,8 +93,9 @@ public final class DebugCommands {
     }
 
     private static int loadWyrldPrint(CommandSourceStack source, String name) {
-        if (!(source.getEntity() instanceof ServerPlayer player) || !(player.level() instanceof ServerLevel level)) {
-            source.sendFailure(Component.literal("Only a player can run this."));
+        ServerLevel level = source.getServer().getLevel(com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension.KEY);
+        if (level == null) {
+            source.sendFailure(Component.literal("Wyrld Space isn't loaded."));
             return 0;
         }
         var found = WyrldPrintStorage.get().load(name);
@@ -100,6 +105,17 @@ public final class DebugCommands {
         }
         WyrldPrintPlacement.loadIntoCraftingZone(level, found.get());
         source.sendSuccess(() -> Component.literal("Loaded '" + name + "' into the crafting zone."), false);
+        return 1;
+    }
+
+    private static int clearCraftZone(CommandSourceStack source) {
+        ServerLevel level = source.getServer().getLevel(com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension.KEY);
+        if (level == null) {
+            source.sendFailure(Component.literal("Wyrld Space isn't loaded."));
+            return 0;
+        }
+        WyrldPrintPlacement.clearCraftingZone(level);
+        source.sendSuccess(() -> Component.literal("Cleared the crafting zone."), false);
         return 1;
     }
 
