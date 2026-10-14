@@ -58,18 +58,32 @@ Scaffolded 2026-10-13 — standalone mod, mirroring Myssions'/Kyt's own project 
   `/tinywyrlds leave` debug commands. **Confirmed live, 2026-10-14** — create/leave and the voxel
   lock all behaved as expected in a real connected dev client.
 
-**WyrldPrint authoring space built 2026-10-14** (renamed from "room blueprint system" — explicit
-user instruction, to avoid confusion with Blueprynts' own "Blueprint") — see
-[context/design-document.md](context/design-document.md)'s subsystem 2 and
-[context/classes/WyrldPrintArea.md](context/classes/WyrldPrintArea.md). A fixed, permanent
-150x100 zone centered on Wyrld Space's own origin (100x100 free-build void crafting zone + a
-single obsidian boundary column + 49 columns of flat cobblestone staging), carved out of the
-space allocator's universe so no real Wyrld instance ever lands on it. Inside it: a real
-gamemode swap to Creative (remembered/restored per player) and a full voxel-lock exemption,
-reachable via `/tinywyrlds craftzone`. **Explicitly not built yet, deferred by the user pending
-a separate decision**: the actual room content (connector/loot/mob/friendly/interactive points)
-and the Save/Load-to-a-named-WyrldPrint mechanic. `./gradlew build`/`test` green (6 unit tests),
-boot-smoke-tested clean via `runServer`. **Not yet live-tested** — needs a dev client restart to
-pick up this build first.
+**WyrldPrint system built and content-populated, 2026-10-14** (renamed from "room blueprint
+system" — explicit user instruction, to avoid confusion with Blueprynts' own "Blueprint") — see
+[context/design-document.md](context/design-document.md)'s subsystem 2,
+[context/classes/WyrldPrintArea.md](context/classes/WyrldPrintArea.md),
+[context/classes/ConnectorPoint.md](context/classes/ConnectorPoint.md), and
+[context/classes/WyrldPrintMechanic.md](context/classes/WyrldPrintMechanic.md):
+- The fixed, permanent 150x100 crafting zone (void crafting area + single-block obsidian boundary
+  + cobblestone staging), with Creative gamemode + voxel-lock exemption inside it — **confirmed
+  live** after two real fixes (always-night lighting; the obsidian boundary was a 12-tall wall
+  instead of 1 block).
+- Six real Connector Point blocks (genuine `DoorBlock`/`TrapDoorBlock` subclasses, oak door/
+  trapdoor look, purple particle glow, auto-fill size-tiered glass marking the attachment area).
+- A real save/load/capture mechanic (`WyrldPrintType` ROOM/CONNECTOR, forward/lateral-normalized
+  data model, a global file store mirroring Blueprynts' own `BlueprintStorage`) and a first-pass
+  "Generate One-off" (`generate.OneOffGenerator` — a flagged placeholder: random chain placement,
+  no real connector-point alignment or rotation yet). Advancements disabled in Wyrld Space.
+- **45 real sample WyrldPrints generated** (25 rooms across 5 themes — tent/wizard tower/cave/
+  mine/basement — + 20 connectors spanning horizontal/vertical/mixed, up to a redstone hidden
+  piston door), built via a throwaway script driving the mod's own real capture pipeline over
+  RCON, same precedent as Blueprynts' own "Ancestors" set. Copied into the shared Dev Server's
+  own WyrldPrint store.
+- **Explicitly not built this pass**: the in-world "right-click to bring up a menu" block
+  (create/edit/save/Generate-One-off GUI) — deliberately deprioritized in favor of real content
+  generation within a time-boxed session; the debug commands are a full functional equivalent
+  today. Loot/mob/friendly/interactive marker points, real rotation, and WyrldRecipe-driven
+  (rather than random-chain) generation are also still unbuilt — see decisions.md.
+- `./gradlew build` green throughout; generation itself was 45/45 successful captures.
 
 See [context/classes/](context/classes/) for per-class reference.
