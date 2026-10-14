@@ -10,10 +10,11 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Blocks;
 
 /**
- * Clears the WyrldPrint crafting zone and pastes a record back into it, always anchored at the
- * crafting zone's own west edge ({@code CRAFT_MIN_X}), centered in Z -- a fixed, reproducible
- * location for "Load for editing," not yet a real dungeon-generation placement (that needs
- * rotation support, not built yet -- see decisions.md).
+ * Clears the WyrldPrint crafting zone and pastes a record back into it, anchored flush against the
+ * cobblestone staging boundary (real user spec, 2026-10-14: "when WorldPrynts are loaded can you
+ * please load them next to the cobblestone, not on the opposite side") rather than the crafting
+ * zone's far west edge -- a fixed, reproducible location for "Load for editing," not yet a real
+ * dungeon-generation placement (that needs rotation support, not built yet -- see decisions.md).
  */
 public final class WyrldPrintPlacement {
 
@@ -37,12 +38,16 @@ public final class WyrldPrintPlacement {
 
     public static void loadIntoCraftingZone(ServerLevel level, WyrldPrintRecord record) {
         clearCraftingZone(level);
+        // Anchored so the content's own far (highest-relForward) edge lands flush against the
+        // boundary, i.e. right next to the cobblestone staging strip, instead of clear across the
+        // void at the crafting zone's far west edge.
+        int anchorX = WyrldPrintArea.BOUNDARY_X - record.forwardSize();
         // Lowest Y first -- a door's upper half (or any other support-dependent block) must find
         // its support already placed, same ordering lesson Blueprynts' own loadBlueprint learned.
         List<WyrldPrintCell> sorted = new ArrayList<>(record.cells());
         sorted.sort((a, b) -> Integer.compare(a.relY(), b.relY()));
         for (WyrldPrintCell cell : sorted) {
-            BlockPos pos = new BlockPos(WyrldPrintArea.CRAFT_MIN_X + cell.relForward(), WyrldManager.BASELINE_Y + cell.relY(), cell.relLateral());
+            BlockPos pos = new BlockPos(anchorX + cell.relForward(), WyrldManager.BASELINE_Y + cell.relY(), cell.relLateral());
             level.setBlock(pos, cell.state(), 3);
         }
     }
