@@ -18,12 +18,14 @@ import net.minecraft.world.level.block.Blocks;
 
 /**
  * The one permanent, fixed-location authoring zone for building dungeon components ("WyrldPrints")
- * -- centered on Wyrld Space's own origin, 150 (X) x 100 (Z) blocks total, explicit user spec
- * (2026-10-14): a 100x100 free-build "crafting" area, a 50x100 strip of flat cobblestone next to
- * it, and a single ground-level obsidian block per Z marking the boundary between them (one
- * block, same shape as the cobblestone floor itself -- corrected same day from an initial,
- * mistaken 12-tall wall; counted as part of the 50-wide strip, so the two areas still sum to
- * exactly 150). Carved permanently out of {@code
+ * -- the crafting zone itself is a fixed 100x100 free-build area (void, no floor -- players fly),
+ * with a flat cobblestone staging strip next to it and a single ground-level obsidian block per Z
+ * marking the boundary between them (one block, same shape as the cobblestone floor itself --
+ * corrected 2026-10-14 from an initial, mistaken 12-tall wall). The staging strip was originally
+ * 50 wide (explicit user spec, 2026-10-14) and shrunk to 10 wide the same day (explicit follow-up:
+ * "make the craftzone 100x10 instead of 100x50... the other 100x100 remains the same") -- the
+ * crafting zone's own position/size is untouched by that change, only the staging strip's width
+ * shrank, so total footprint went from 150x100 to 110x100. Carved permanently out of {@code
  * space.WyrldSpaceAllocator}'s universe (see {@link #RESERVED_BOUNDS}) so no real Wyrld instance
  * is ever allocated on top of it.
  *
@@ -38,9 +40,10 @@ public final class WyrldPrintArea {
     private WyrldPrintArea() {
     }
 
-    /** Full reserved footprint: 150 (X) x 100 (Z), centered on Wyrld Space's origin. */
+    /** Full reserved footprint: 110 (X) x 100 (Z), anchored on the crafting zone's own fixed
+     *  position (not re-centered when the staging strip's width changed). */
     public static final int MIN_X = -75;
-    public static final int MAX_X = 75; // exclusive
+    public static final int MAX_X = 35; // exclusive
     public static final int MIN_Z = -50;
     public static final int MAX_Z = 50; // exclusive
 
@@ -48,12 +51,16 @@ public final class WyrldPrintArea {
     public static final int CRAFT_MIN_X = MIN_X;
     public static final int CRAFT_MAX_X = MIN_X + 100; // exclusive, = 25
 
-    /** The single obsidian column marking the boundary -- counted as part of the 50-wide strip. */
+    /** The single obsidian column marking the boundary -- counted as part of the 10-wide strip. */
     public static final int BOUNDARY_X = CRAFT_MAX_X; // = 25
 
-    /** Flat cobblestone strip -- 49 wide (the remaining 50 - 1 obsidian column). */
+    /** Flat cobblestone strip -- 9 wide (the remaining 10 - 1 obsidian column). */
     public static final int COBBLESTONE_MIN_X = BOUNDARY_X + 1; // = 26
-    public static final int COBBLESTONE_MAX_X = MAX_X; // exclusive, = 75
+    public static final int COBBLESTONE_MAX_X = MAX_X; // exclusive, = 35
+
+    /** The staging strip's original (2026-10-13) far edge, kept only so {@link #ensureBuilt} can
+     *  clear leftover cobblestone from a dev save built before the strip shrank from 50 wide to 10. */
+    private static final int OLD_COBBLESTONE_CLEANUP_MAX_X = 75;
 
     /** Explicit user spec (2026-10-14): "treat the side facing toward the 50x100 staging area as
      *  the front" -- the staging area sits at higher X than the crafting zone, so facing toward
@@ -80,7 +87,7 @@ public final class WyrldPrintArea {
             MIN_X - ALLOCATOR_HOLE_MARGIN, MIN_Z - ALLOCATOR_HOLE_MARGIN,
             MAX_X + ALLOCATOR_HOLE_MARGIN, MAX_Z + ALLOCATOR_HOLE_MARGIN);
 
-    /** True for any (x, z) inside the full 150x100 footprint, at any Y -- players can fly, so this
+    /** True for any (x, z) inside the full 110x100 footprint, at any Y -- players can fly, so this
      *  is deliberately a 2D check, not bounded in height. */
     public static boolean contains(int x, int z) {
         return x >= MIN_X && x < MAX_X && z >= MIN_Z && z < MAX_Z;
@@ -100,6 +107,17 @@ public final class WyrldPrintArea {
             for (int x = COBBLESTONE_MIN_X; x < COBBLESTONE_MAX_X; x++) {
                 for (int z = MIN_Z; z < MAX_Z; z++) {
                     level.setBlock(new BlockPos(x, FLOOR_Y, z), Blocks.COBBLESTONE.defaultBlockState(), 2);
+                }
+            }
+        }
+
+        // Self-heal a dev save built before the staging strip shrank from 50 wide to 10 -- clear
+        // any cobblestone left over past the new (smaller) boundary.
+        for (int x = COBBLESTONE_MAX_X; x < OLD_COBBLESTONE_CLEANUP_MAX_X; x++) {
+            for (int z = MIN_Z; z < MAX_Z; z++) {
+                BlockPos pos = new BlockPos(x, FLOOR_Y, z);
+                if (level.getBlockState(pos).is(Blocks.COBBLESTONE)) {
+                    level.setBlock(pos, Blocks.AIR.defaultBlockState(), 2);
                 }
             }
         }
