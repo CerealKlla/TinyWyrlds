@@ -40,12 +40,19 @@ import net.minecraft.world.level.block.state.BlockState;
  * once rotated -- see that field's own doc for the outward-facing convention every sample piece
  * follows), tries all 4 {@link Rotation}s until one lines the two points up with no bounding-box
  * overlap against anything already placed, and stamps it in. Grows until the target room count is
- * reached or growth runs out of attempts ({@code minRooms}/{@code maxRooms} count only ROOM pieces
- * -- a CONNECTOR placed in between is extra, not counted toward that target). A CONNECTOR is
- * preferred between two rooms (65% of the time, when any are saved) purely for variety, with direct
- * room-to-room also valid -- but a connector's own frontier is <b>never</b> extended with another
- * connector (explicit user spec, 2026-10-14: "connectors are meant to sit between rooms"), only
- * with a ROOM, so two connectors can never chain back to back.
+ * reached or growth runs out of attempts ({@code minRooms}/{@code maxRooms} count only {@code ROOM}
+ * pieces -- a {@code CONNECTOR} placed in between is extra, not counted toward that target, and
+ * neither is the {@code ENTRANCE} itself: "Entrance is a brand new type of prynt, there is no
+ * 'always' in that context. [it] does not count against the room count. If I want the possibility
+ * of only an entrance I'll set it to 0" -- explicit user spec, 2026-10-14, correcting an initial,
+ * wrong assumption that it should count like a ROOM does). A CONNECTOR is preferred between two
+ * rooms (65% of the time, when any are saved) purely for variety, with direct room-to-room also
+ * valid -- but a connector's own frontier is <b>never</b> extended with another connector (explicit
+ * user spec, 2026-10-14: "connectors are meant to sit between rooms"), only with a ROOM, so two
+ * connectors can never chain back to back. The ENTRANCE's own frontier is stricter still: it
+ * <b>always</b> tries a connector first, never a direct room join, unlike an ordinary ROOM's 65%
+ * preference (explicit user spec, 2026-10-14: "there should be a connector attached to the spawn
+ * room, not straight into a room").
  *
  * <p><b>There is never a real dead end</b> (explicit user spec, 2026-10-14: "There should never be
  * an unused/dead-end... This inherently might allow a dungeon to exceed the max rooms, that is
@@ -140,8 +147,13 @@ public final class OneOffGenerator {
         placements.add(first);
         occupied.putAll(cellStates(first));
         addFrontiers(openFrontiers, first, null);
-        int roomsPlaced = 1;
         Placement entrancePlacement = first.record().type() == WyrldPrintType.ENTRANCE ? first : null;
+        // The ENTRANCE does NOT count toward minRooms/maxRooms -- explicit user spec, 2026-10-14:
+        // "Entrance is a brand new type of prynt, there is no 'always' in that context. Please
+        // change it so that the entrance does not count against the room count. If I want the
+        // possibility of only an entrance I'll set it to 0." Only counts here when no ENTRANCE was
+        // saved and `first` fell back to a random ROOM instead (see above).
+        int roomsPlaced = entrancePlacement == null ? 1 : 0;
         logPlacement(first);
 
         int attempts = 0;
@@ -153,10 +165,16 @@ public final class OneOffGenerator {
             Placement placed = null;
             // Connectors must always sit between two rooms, never chain to another connector --
             // explicit user spec, 2026-10-14. A frontier whose own piece IS a connector only ever
-            // tries ROOM candidates; only a room's (or the Entrance's, same rule) own frontier gets
-            // the connector preference.
-            boolean frontierOwnedByRoom = frontier.ownerType() == WyrldPrintType.ROOM || frontier.ownerType() == WyrldPrintType.ENTRANCE;
-            if (frontierOwnedByRoom && !connectors.isEmpty() && random.nextDouble() < PREFER_CONNECTOR_CHANCE) {
+            // tries ROOM candidates; only a room's (or the Entrance's) own frontier gets the
+            // connector preference at all.
+            boolean frontierOwnedByRoom = frontier.ownerType() == WyrldPrintType.ROOM;
+            boolean frontierOwnedByEntrance = frontier.ownerType() == WyrldPrintType.ENTRANCE;
+            // "there should be a connector attached to the spawn room, not straight into a room"
+            // (explicit user spec, 2026-10-14) -- unlike an ordinary ROOM's 65%-of-the-time
+            // preference, the ENTRANCE's own frontier *always* tries a connector first (still
+            // falling back to a direct room join below if no connector fits or none are saved).
+            boolean tryConnectorFirst = frontierOwnedByEntrance || (frontierOwnedByRoom && random.nextDouble() < PREFER_CONNECTOR_CHANCE);
+            if (tryConnectorFirst && !connectors.isEmpty()) {
                 placed = tryPlace(frontier, shuffled(connectors, random), occupied, random);
             }
             if (placed == null) {

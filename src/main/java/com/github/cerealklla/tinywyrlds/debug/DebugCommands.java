@@ -63,15 +63,18 @@ public final class DebugCommands {
                         .then(Commands.literal("validateall")
                                 .executes(ctx -> validateAllWyrldPrints(ctx.getSource()))))
                 .then(Commands.literal("generate")
-                        .then(Commands.argument("minRooms", IntegerArgumentType.integer(1))
-                                .then(Commands.argument("maxRooms", IntegerArgumentType.integer(1))
+                        // 0 is a real, intentional value here now that an ENTRANCE doesn't count
+                        // toward this target -- explicit user spec, 2026-10-14: "If I want the
+                        // possibility of only an entrance I'll set it to 0."
+                        .then(Commands.argument("minRooms", IntegerArgumentType.integer(0))
+                                .then(Commands.argument("maxRooms", IntegerArgumentType.integer(0))
                                         .executes(ctx -> generateOneOff(ctx.getSource(),
                                                 IntegerArgumentType.getInteger(ctx, "minRooms"),
                                                 IntegerArgumentType.getInteger(ctx, "maxRooms"))))))
                 .then(Commands.literal("selectiontest")
                         .then(Commands.argument("trials", IntegerArgumentType.integer(1))
-                                .then(Commands.argument("minRooms", IntegerArgumentType.integer(1))
-                                        .then(Commands.argument("maxRooms", IntegerArgumentType.integer(1))
+                                .then(Commands.argument("minRooms", IntegerArgumentType.integer(0))
+                                        .then(Commands.argument("maxRooms", IntegerArgumentType.integer(0))
                                                 .executes(ctx -> selectionTest(ctx.getSource(),
                                                         IntegerArgumentType.getInteger(ctx, "trials"),
                                                         IntegerArgumentType.getInteger(ctx, "minRooms"),
