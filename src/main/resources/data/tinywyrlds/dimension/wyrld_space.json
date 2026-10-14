@@ -1,0 +1,14 @@
+{
+  "type": "tinywyrlds:wyrld_space",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "layers": [
+        { "height": 1, "block": "minecraft:air" }
+      ],
+      "biome": "minecraft:the_void",
+      "lakes": false,
+      "features": false
+    }
+  }
+}

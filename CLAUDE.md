@@ -41,11 +41,22 @@ Scaffolded 2026-10-13 — standalone mod, mirroring Myssions'/Kyt's own project 
   grant/accept gating an Entrance), Settlemynts (a plot type hosting a standing Wyrld Entrance), and
   Blueprynts (shares its Construction-Site *concept* for the room blueprint editor, not a real code
   dependency).
-- Empty mod -- `TinyWyrldsMod` registers nothing yet, only logs "TinyWyrlds common setup" on boot.
-  No content exists. See [context/design-document.md](context/design-document.md) for the full
-  spec (verbatim user request + subsystem breakdown + open design questions) and
-  [context/decisions.md](context/decisions.md) for pending work. **Nothing has been built yet** —
-  the open design questions around Wyrld lifecycle (real per-UUID `Level` vs. a bounded shared-space
-  region, reset/wipe triggers, voxel-lock enforcement) need resolving before any real slice starts.
+**First slice built 2026-10-13 — Wyrld lifecycle** (see [context/design-document.md](context/design-document.md)'s
+"Wyrld lifecycle architecture" section for the full design back-and-forth, and
+[context/classes/](context/classes/) for per-class reference):
+- One permanent, custom `tinywyrlds:wyrld_space` dimension (void-flat, `min_y=0`/`height=2032`) —
+  isolated per-UUID dimensions and a fixed max-cell-size grid were both proposed and explicitly
+  rejected (see the design doc) in favor of a 2D free-rectangle packer (`space.WyrldSpaceAllocator`)
+  that reserves exactly the footprint each Wyrld's own generated layout needs, no fixed size
+  anywhere. Vertical Y-band "stacking" was also proposed and correctly rejected — a Minecraft chunk
+  column loads as a whole regardless of Y, so every instance just shares one baseline Y instead.
+- `instance.WyrldManager` — create a Wyrld, teleport a player in/out (remembering where they came
+  from), and a periodic idle sweep (ACTIVE → STALE after 5 min unoccupied → wiped+freed after 15
+  more). `voxel.VoxelLockListener` enforces "no solid block create/destroy" (non-solid = no
+  collision shape) scoped to the Wyrld Space dimension.
+- No room/recipe/Entrance content exists yet — only reachable via `/tinywyrlds create <w> <l>` /
+  `/tinywyrlds leave` debug commands. `./gradlew build`/`test` green (4 allocator unit tests),
+  boot-smoke-tested clean via `runServer` (the dimension registers/loads with no errors, whole
+  8-mod suite unaffected). **Never actually entered/left from a real connected client yet.**
 
-See [context/classes/](context/classes/) for per-class reference (empty so far).
+See [context/classes/](context/classes/) for per-class reference.
