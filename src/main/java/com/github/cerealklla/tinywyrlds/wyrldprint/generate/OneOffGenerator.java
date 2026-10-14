@@ -146,7 +146,7 @@ public final class OneOffGenerator {
                 : entrances.get(random.nextInt(entrances.size())), Rotation.NONE, 0, 0, 0);
         placements.add(first);
         occupied.putAll(cellStates(first));
-        addFrontiers(openFrontiers, first, null);
+        addFrontiers(openFrontiers, first);
         Placement entrancePlacement = first.record().type() == WyrldPrintType.ENTRANCE ? first : null;
         // The ENTRANCE does NOT count toward minRooms/maxRooms -- explicit user spec, 2026-10-14:
         // "Entrance is a brand new type of prynt, there is no 'always' in that context. Please
@@ -185,7 +185,7 @@ public final class OneOffGenerator {
             }
             placements.add(placed);
             occupied.putAll(cellStates(placed));
-            addFrontiers(openFrontiers, placed, frontier);
+            addFrontiers(openFrontiers, placed);
             if (placed.record().type() == WyrldPrintType.ROOM) {
                 roomsPlaced++;
             }
@@ -212,7 +212,7 @@ public final class OneOffGenerator {
             }
             placements.add(placed);
             occupied.putAll(cellStates(placed));
-            addFrontiers(openFrontiers, placed, frontier); // always zero new frontiers -- its one point was just consumed.
+            addFrontiers(openFrontiers, placed); // always zero new frontiers -- its one point was just consumed.
             roomsPlaced++; // endcapRooms are ROOM-type by construction.
             logPlacement(placed);
         }
@@ -317,7 +317,7 @@ public final class OneOffGenerator {
                     int originForward = targetForward - rotatedFL[0];
                     int originLateral = targetLateral - rotatedFL[1];
                     int originY = frontier.worldY() - point.relY();
-                    Placement candidatePlacement = new Placement(candidate, rotation, originForward, originLateral, originY);
+                    Placement candidatePlacement = new Placement(candidate, rotation, originForward, originLateral, originY, point);
                     List<LocalPos> conflicts = findCollisions(candidatePlacement, occupied);
                     if (conflicts.isEmpty()) {
                         return candidatePlacement;
@@ -428,16 +428,24 @@ public final class OneOffGenerator {
         };
     }
 
-    private static void addFrontiers(List<Frontier> frontiers, Placement placement, Frontier consumedFrontier) {
+    /** Adds every one of {@code placement}'s own connector points as a new open frontier, except
+     *  the one it was just attached with ({@code placement.consumedPoint()}, identified by
+     *  identity). Used to compare world positions against the old, now-consumed frontier instead --
+     *  that broke the moment joined pieces stopped sharing the same cell (see {@code tryPlace}'s own
+     *  "touch, not overlap" doc): the newly placed piece's own door is now a cell away from where
+     *  the old frontier was, so it could never match by position again, and every wall-type join
+     *  started silently re-opening its own just-used door as a brand new frontier -- a real,
+     *  confirmed-live bug (a generate call repeatedly re-placing the identical piece at the
+     *  identical spot, inflating the reported room count with duplicates of itself). */
+    private static void addFrontiers(List<Frontier> frontiers, Placement placement) {
         for (WyrldPrintPoint point : placement.record().points()) {
+            if (point == placement.consumedPoint()) {
+                continue; // this is the point that was just used to attach -- not a new frontier.
+            }
             int[] rotatedFL = rotateForwardLateral(point.relForward(), point.relLateral(), placement.rotation());
             int worldForward = placement.originForward() + rotatedFL[0];
             int worldLateral = placement.originLateral() + rotatedFL[1];
             int worldY = placement.originY() + point.relY();
-            if (consumedFrontier != null && worldForward == consumedFrontier.worldForward()
-                    && worldLateral == consumedFrontier.worldLateral() && worldY == consumedFrontier.worldY()) {
-                continue; // this is the point that was just used to attach -- not a new frontier.
-            }
             Optional<Direction> worldFacing = point.facing().map(f -> placement.rotation().rotate(f));
             frontiers.add(new Frontier(worldForward, worldLateral, worldY, point.wall(), worldFacing, placement.record().type()));
         }
@@ -526,7 +534,17 @@ public final class OneOffGenerator {
         return false;
     }
 
-    private record Placement(WyrldPrintRecord record, Rotation rotation, int originForward, int originLateral, int originY) {
+    /** {@code consumedPoint} is the exact {@code WyrldPrintPoint} instance (from {@code
+     *  record.points()}) that was used to attach this placement to whatever frontier it joined --
+     *  {@code null} for the very first/anchor placement, which wasn't attached to anything.
+     *  Identity, not a recomputed world position, is what {@code addFrontiers} uses to recognize
+     *  "this door is already spoken for" -- see that method's own doc for why a position comparison
+     *  stopped working once joined pieces only touch instead of sharing the same cell. */
+    private record Placement(WyrldPrintRecord record, Rotation rotation, int originForward, int originLateral, int originY,
+                              WyrldPrintPoint consumedPoint) {
+        Placement(WyrldPrintRecord record, Rotation rotation, int originForward, int originLateral, int originY) {
+            this(record, rotation, originForward, originLateral, originY, null);
+        }
     }
 
     /** {@code ownerType} is the type of the piece this point belongs to -- used to enforce
