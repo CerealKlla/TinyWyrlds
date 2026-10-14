@@ -2,6 +2,7 @@ package com.github.cerealklla.tinywyrlds.wyrldprint.connector;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
@@ -38,6 +39,18 @@ public class WallConnectorPointBlock extends DoorBlock {
         super.setPlacedBy(level, pos, state, placer, stack);
         BlockPos basePos = state.getValue(HALF) == DoubleBlockHalf.LOWER ? pos : pos.below();
         ConnectorPointFill.fillWall(level, basePos, state.getValue(FACING), size);
+    }
+
+    /** Symmetric counterpart of {@link #setPlacedBy}'s fill -- real live report, 2026-10-14:
+     *  "when I break a connector it doesn't break the surrounding glass." Vanilla's own door
+     *  removal fires this once per half; guarded to {@code LOWER} only so the clear doesn't run
+     *  twice. */
+    @Override
+    protected void affectNeighborsAfterRemoval(BlockState state, ServerLevel level, BlockPos pos, boolean movedByPiston) {
+        super.affectNeighborsAfterRemoval(state, level, pos, movedByPiston);
+        if (state.getValue(HALF) == DoubleBlockHalf.LOWER) {
+            ConnectorPointFill.clearWall(level, pos, state.getValue(FACING), size);
+        }
     }
 
     /** The "purple glow effect" -- {@link ParticleTypes#PORTAL} is the same particle a Nether

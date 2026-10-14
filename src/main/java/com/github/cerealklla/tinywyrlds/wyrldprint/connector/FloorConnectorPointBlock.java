@@ -2,6 +2,7 @@ package com.github.cerealklla.tinywyrlds.wyrldprint.connector;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
@@ -35,6 +36,15 @@ public class FloorConnectorPointBlock extends TrapDoorBlock {
     public void setPlacedBy(Level level, BlockPos pos, BlockState state, LivingEntity placer, ItemStack stack) {
         super.setPlacedBy(level, pos, state, placer, stack);
         ConnectorPointFill.fillFloor(level, pos, size);
+    }
+
+    /** Symmetric counterpart of {@link #setPlacedBy}'s fill -- see {@code WallConnectorPointBlock}'s
+     *  own doc for the live report that prompted this. No {@code HALF} property here (single
+     *  block), so no double-fire guard needed. */
+    @Override
+    protected void affectNeighborsAfterRemoval(BlockState state, ServerLevel level, BlockPos pos, boolean movedByPiston) {
+        super.affectNeighborsAfterRemoval(state, level, pos, movedByPiston);
+        ConnectorPointFill.clearFloor(level, pos, size);
     }
 
     /** The "purple glow effect" -- see {@code WallConnectorPointBlock}'s own doc. */
