@@ -71,9 +71,14 @@ system" — explicit user instruction, to avoid confusion with Blueprynts' own "
 - Six real Connector Point blocks (genuine `DoorBlock`/`TrapDoorBlock` subclasses, oak door/
   trapdoor look, purple particle glow, auto-fill size-tiered glass marking the attachment area).
 - A real save/load/capture mechanic (`WyrldPrintType` ROOM/CONNECTOR, forward/lateral-normalized
-  data model, a global file store mirroring Blueprynts' own `BlueprintStorage`) and a first-pass
-  "Generate One-off" (`generate.OneOffGenerator` — a flagged placeholder: random chain placement,
-  no real connector-point alignment or rotation yet). Advancements disabled in Wyrld Space.
+  data model, a global file store mirroring Blueprynts' own `BlueprintStorage`). Advancements
+  disabled in Wyrld Space.
+- **"Generate One-off" is real connector-aware generation** (`generate.OneOffGenerator`, second
+  pass) — matches connector points by kind + opposite facing, tries all 4 rotations via vanilla's
+  own `BlockState#rotate`, rejects colliding placements. A real collision-detection bug (the
+  expected 1-cell connector seam being flagged as a clash) was found live and fixed; re-tested
+  afterward hitting the requested room count consistently across several runs. Still not
+  size-matched and still no WyrldRecipe-driven selection — flagged, not forgotten.
 - **45 real sample WyrldPrints generated** (25 rooms across 5 themes — tent/wizard tower/cave/
   mine/basement — + 20 connectors spanning horizontal/vertical/mixed, up to a redstone hidden
   piston door), built via a throwaway script driving the mod's own real capture pipeline over

@@ -124,7 +124,7 @@ public final class WyrldPrintCapture {
         List<WyrldPrintPoint> points = new ArrayList<>();
         for (DetectedPoint point : detectedPoints) {
             points.add(new WyrldPrintPoint(point.pos.getX() - minX, point.pos.getZ() - originLateral,
-                    point.pos.getY() - WyrldManager.BASELINE_Y, point.wall, point.size));
+                    point.pos.getY() - WyrldManager.BASELINE_Y, point.wall, point.size, Optional.ofNullable(point.facing)));
         }
 
         WyrldPrintRecord record = new WyrldPrintRecord(WyrldPrintRecord.CURRENT_TEMPLATE_VERSION, name, author, type,

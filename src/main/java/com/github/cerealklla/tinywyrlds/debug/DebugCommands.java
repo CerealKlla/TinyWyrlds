@@ -126,17 +126,18 @@ public final class DebugCommands {
     }
 
     private static int generateOneOff(CommandSourceStack source, int minRooms, int maxRooms) {
-        if (!(source.getEntity() instanceof ServerPlayer player)) {
-            source.sendFailure(Component.literal("Only a player can run this."));
-            return 0;
-        }
         WyrldInstanceRecord instance = OneOffGenerator.generate(source.getServer(), minRooms, maxRooms);
         if (instance == null) {
             source.sendFailure(Component.literal("Not enough saved WyrldPrints to generate a dungeon -- need at least 1 room."));
             return 0;
         }
-        WyrldManager.enter(player, instance.id());
-        source.sendSuccess(() -> Component.literal("Generated and entered a one-off Wyrld " + instance.id()), false);
+        if (source.getEntity() instanceof ServerPlayer player) {
+            WyrldManager.enter(player, instance.id());
+            source.sendSuccess(() -> Component.literal("Generated and entered a one-off Wyrld " + instance.id()), false);
+        } else {
+            source.sendSuccess(() -> Component.literal("Generated a one-off Wyrld " + instance.id()
+                    + " (no player to enter -- run from RCON/console)."), false);
+        }
         return 1;
     }
 
