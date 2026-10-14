@@ -4,9 +4,36 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 
 class WyrldSpaceAllocatorTest {
+
+    @Test
+    void initialUniverseWithAHoleNeverAllocatesInsideIt() {
+        FreeRect hole = new FreeRect(-100, -100, 100, 100);
+        WyrldSpaceAllocator allocator = new WyrldSpaceAllocator(WyrldSpaceAllocator.initialUniverse(List.of(hole)));
+
+        // Repeatedly allocate small reservations and release half of them -- regardless of where
+        // the packer lands each one, none should ever overlap the reserved hole.
+        for (int i = 0; i < 20; i++) {
+            WyrldSpaceAllocator.Reservation reservation = allocator.allocate(30, 30).orElseThrow();
+            assertFalse(overlaps(reservation.full(), hole), "a reservation must never land inside the reserved hole");
+        }
+    }
+
+    @Test
+    void initialUniverseWithAHoleStillCoversTheRestOfTheUniverse() {
+        FreeRect hole = new FreeRect(-100, -100, 100, 100);
+        List<FreeRect> withHole = WyrldSpaceAllocator.initialUniverse(List.of(hole));
+
+        long holeArea = hole.area();
+        long fullUniverseArea = (long) (2L * WyrldSpaceAllocator.UNIVERSE_HALF_EXTENT) * (2L * WyrldSpaceAllocator.UNIVERSE_HALF_EXTENT);
+        long piecesArea = withHole.stream().mapToLong(FreeRect::area).sum();
+
+        assertEquals(fullUniverseArea - holeArea, piecesArea, "the hole's area should be the only area missing from the universe");
+    }
 
     @Test
     void allocateReturnsPaddedFullRectAndInnerUsableRect() {

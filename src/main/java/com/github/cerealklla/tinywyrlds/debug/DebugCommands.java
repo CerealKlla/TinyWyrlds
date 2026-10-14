@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 
 import com.github.cerealklla.tinywyrlds.instance.WyrldInstanceRecord;
 import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
+import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintArea;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -32,7 +33,21 @@ public final class DebugCommands {
                                                 IntegerArgumentType.getInteger(ctx, "width"),
                                                 IntegerArgumentType.getInteger(ctx, "length"))))))
                 .then(Commands.literal("leave")
-                        .executes(ctx -> leave(ctx.getSource()))));
+                        .executes(ctx -> leave(ctx.getSource())))
+                .then(Commands.literal("craftzone")
+                        .executes(ctx -> enterCraftZone(ctx.getSource()))));
+    }
+
+    private static int enterCraftZone(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player)) {
+            source.sendFailure(Component.literal("Only a player can run this."));
+            return 0;
+        }
+        boolean entered = WyrldPrintArea.teleportPlayerIn(player);
+        source.sendSuccess(() -> Component.literal(entered
+                ? "Sent to the WyrldPrint crafting area."
+                : "Could not enter the WyrldPrint crafting area."), false);
+        return entered ? 1 : 0;
     }
 
     private static int createAndEnter(CommandSourceStack source, int width, int length) {

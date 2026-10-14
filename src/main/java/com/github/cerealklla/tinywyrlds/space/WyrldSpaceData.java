@@ -12,6 +12,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import com.github.cerealklla.tinywyrlds.TinyWyrldsMod;
 import com.github.cerealklla.tinywyrlds.instance.WyrldInstanceRecord;
+import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintArea;
 
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.resources.Identifier;
@@ -42,7 +43,7 @@ public final class WyrldSpaceData extends SavedData {
     private final Map<UUID, WyrldInstanceRecord> instances;
 
     private WyrldSpaceData() {
-        this(WyrldSpaceAllocator.initialUniverse(), Map.of());
+        this(WyrldSpaceAllocator.initialUniverse(List.of(WyrldPrintArea.RESERVED_BOUNDS)), Map.of());
     }
 
     private WyrldSpaceData(List<FreeRect> freeRects, Map<UUID, WyrldInstanceRecord> instances) {

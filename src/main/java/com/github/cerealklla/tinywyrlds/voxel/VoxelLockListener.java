@@ -1,6 +1,7 @@
 package com.github.cerealklla.tinywyrlds.voxel;
 
 import com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension;
+import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintArea;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -24,12 +25,20 @@ import net.neoforged.neoforge.event.level.block.BreakBlockEvent;
  * Protectyons' {@code VoxelProtectionListener} does, since Wyrld Space has no natural terrain for
  * that to ever come up against in this slice (a void-flat dimension, nothing generated in it yet)
  * -- revisit if/when real generated terrain inside a Wyrld ever becomes a thing.
+ *
+ * <p><b>Exempt entirely inside {@code wyrldprint.WyrldPrintArea}</b> (2026-10-14) -- the fixed
+ * reserved zone for authoring dungeon components ("WyrldPrints") is explicit-spec "freely build/
+ * destroy/fly like creative mode," so this listener never even applies the solid-block check
+ * there.
  */
 public final class VoxelLockListener {
 
     @SubscribeEvent
     public void onBreakBlock(BreakBlockEvent event) {
         if (!(event.getLevel() instanceof ServerLevel serverLevel) || !isWyrldSpace(serverLevel)) {
+            return;
+        }
+        if (WyrldPrintArea.contains(event.getPos())) {
             return;
         }
         if (!isNonSolid(event.getState(), serverLevel, event.getPos())) {
@@ -40,6 +49,9 @@ public final class VoxelLockListener {
     @SubscribeEvent
     public void onEntityPlace(BlockEvent.EntityPlaceEvent event) {
         if (!(event.getLevel() instanceof ServerLevel serverLevel) || !isWyrldSpace(serverLevel)) {
+            return;
+        }
+        if (WyrldPrintArea.contains(event.getPos())) {
             return;
         }
         if (!isNonSolid(event.getPlacedBlock(), serverLevel, event.getPos())) {

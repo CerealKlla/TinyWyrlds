@@ -49,9 +49,45 @@ public final class WyrldSpaceAllocator {
     }
 
     public static List<FreeRect> initialUniverse() {
+        return initialUniverse(List.of());
+    }
+
+    /**
+     * Same full universe, minus zero or more permanently-reserved holes (e.g. {@code
+     * wyrldprint.WyrldPrintArea}'s fixed crafting zone) that real Wyrld instances must never be
+     * allocated into. Each hole is carved out via the standard "rectangle minus rectangle" 4-piece
+     * decomposition (left/right full-height strips + top/bottom strips spanning just the hole's own
+     * width) -- none of the four pieces share a full edge with each other at the hole's boundary, so
+     * {@link #coalesce} can never accidentally merge them back into something that re-covers the
+     * hole. Holes are expected to be few, non-overlapping, and far smaller than {@link
+     * #UNIVERSE_HALF_EXTENT} -- not validated beyond that.
+     */
+    public static List<FreeRect> initialUniverse(List<FreeRect> reservedHoles) {
         List<FreeRect> universe = new ArrayList<>();
         universe.add(new FreeRect(-UNIVERSE_HALF_EXTENT, -UNIVERSE_HALF_EXTENT, UNIVERSE_HALF_EXTENT, UNIVERSE_HALF_EXTENT));
+        for (FreeRect hole : reservedHoles) {
+            List<FreeRect> withHoleRemoved = new ArrayList<>();
+            for (FreeRect piece : universe) {
+                withHoleRemoved.addAll(subtract(piece, hole));
+            }
+            universe = withHoleRemoved;
+        }
         return universe;
+    }
+
+    /** {@code outer} minus {@code hole} (assumed fully inside {@code outer}), as up to 4 pieces. */
+    private static List<FreeRect> subtract(FreeRect outer, FreeRect hole) {
+        List<FreeRect> pieces = new ArrayList<>();
+        FreeRect left = new FreeRect(outer.x1(), outer.z1(), hole.x1(), outer.z2());
+        FreeRect right = new FreeRect(hole.x2(), outer.z1(), outer.x2(), outer.z2());
+        FreeRect top = new FreeRect(hole.x1(), outer.z1(), hole.x2(), hole.z1());
+        FreeRect bottom = new FreeRect(hole.x1(), hole.z2(), hole.x2(), outer.z2());
+        for (FreeRect piece : List.of(left, right, top, bottom)) {
+            if (piece.width() > 0 && piece.length() > 0) {
+                pieces.add(piece);
+            }
+        }
+        return pieces;
     }
 
     public List<FreeRect> snapshot() {

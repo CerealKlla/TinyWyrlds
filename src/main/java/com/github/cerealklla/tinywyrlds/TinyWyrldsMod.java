@@ -4,6 +4,8 @@ import com.github.cerealklla.tinywyrlds.debug.DebugCommands;
 import com.github.cerealklla.tinywyrlds.instance.WyrldLifecycleTicker;
 import com.github.cerealklla.tinywyrlds.registration.ModAttachments;
 import com.github.cerealklla.tinywyrlds.voxel.VoxelLockListener;
+import com.github.cerealklla.tinywyrlds.wyrldprint.CreativeZoneTicker;
+import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintAreaSetupListener;
 
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
@@ -28,6 +30,8 @@ public class TinyWyrldsMod {
 
         NeoForge.EVENT_BUS.register(new VoxelLockListener());
         NeoForge.EVENT_BUS.register(new WyrldLifecycleTicker());
+        NeoForge.EVENT_BUS.register(new WyrldPrintAreaSetupListener());
+        NeoForge.EVENT_BUS.register(new CreativeZoneTicker());
         NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) -> DebugCommands.register(event.getDispatcher()));
     }
 

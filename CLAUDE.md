@@ -55,8 +55,21 @@ Scaffolded 2026-10-13 — standalone mod, mirroring Myssions'/Kyt's own project 
   more). `voxel.VoxelLockListener` enforces "no solid block create/destroy" (non-solid = no
   collision shape) scoped to the Wyrld Space dimension.
 - No room/recipe/Entrance content exists yet — only reachable via `/tinywyrlds create <w> <l>` /
-  `/tinywyrlds leave` debug commands. `./gradlew build`/`test` green (4 allocator unit tests),
-  boot-smoke-tested clean via `runServer` (the dimension registers/loads with no errors, whole
-  8-mod suite unaffected). **Never actually entered/left from a real connected client yet.**
+  `/tinywyrlds leave` debug commands. **Confirmed live, 2026-10-14** — create/leave and the voxel
+  lock all behaved as expected in a real connected dev client.
+
+**WyrldPrint authoring space built 2026-10-14** (renamed from "room blueprint system" — explicit
+user instruction, to avoid confusion with Blueprynts' own "Blueprint") — see
+[context/design-document.md](context/design-document.md)'s subsystem 2 and
+[context/classes/WyrldPrintArea.md](context/classes/WyrldPrintArea.md). A fixed, permanent
+150x100 zone centered on Wyrld Space's own origin (100x100 free-build void crafting zone + a
+single obsidian boundary column + 49 columns of flat cobblestone staging), carved out of the
+space allocator's universe so no real Wyrld instance ever lands on it. Inside it: a real
+gamemode swap to Creative (remembered/restored per player) and a full voxel-lock exemption,
+reachable via `/tinywyrlds craftzone`. **Explicitly not built yet, deferred by the user pending
+a separate decision**: the actual room content (connector/loot/mob/friendly/interactive points)
+and the Save/Load-to-a-named-WyrldPrint mechanic. `./gradlew build`/`test` green (6 unit tests),
+boot-smoke-tested clean via `runServer`. **Not yet live-tested** — needs a dev client restart to
+pick up this build first.
 
 See [context/classes/](context/classes/) for per-class reference.

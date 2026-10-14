@@ -80,7 +80,7 @@ public final class WyrldManager {
 
         GlobalPos from = GlobalPos.of(player.level().dimension(), player.blockPosition());
         PlayerWyrldData current = player.getData(ModAttachments.WYRLD_DATA);
-        player.setData(ModAttachments.WYRLD_DATA, current.entering(wyrldId, from));
+        player.setData(ModAttachments.WYRLD_DATA, current.enteringWyrld(wyrldId, from));
 
         FreeRect inner = instance.innerRect();
         player.teleportTo(wyrldLevel, inner.centerX() + 0.5, instance.baselineY(), inner.centerZ() + 0.5,
@@ -102,7 +102,7 @@ public final class WyrldManager {
         if (returnLevel == null) {
             return false;
         }
-        player.setData(ModAttachments.WYRLD_DATA, current.leaving());
+        player.setData(ModAttachments.WYRLD_DATA, current.leavingWyrld());
         BlockPos pos = returnPos.pos();
         player.teleportTo(returnLevel, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5,
                 Set.of(), player.getYRot(), player.getXRot(), true);
