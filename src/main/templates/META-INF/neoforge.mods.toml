@@ -1,0 +1,58 @@
+license="${mod_license}"
+
+[[mods]] #mandatory
+
+modId="${mod_id}" #mandatory
+
+version="${mod_version}" #mandatory
+
+displayName="${mod_name}" #mandatory
+
+description='''
+Purpose-built, UUID-named instanced worlds ("Wyrlds") entered/exited through dynamically generated
+or scheduled Entrances. Rooms are authored with an admin-facing blueprint editor (connector points,
+loot/mob/friendly/interactive spawn points) and assembled per-visit from a WyrldRecipe. No voxel
+creation or destruction is permitted inside a Wyrld except non-solid blocks (plants, webs, etc.).
+'''
+
+[[dependencies.${mod_id}]] #optional
+    modId="neoforge" #mandatory
+    type="required" #mandatory
+    versionRange="[${neo_version},)" #mandatory
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"
+
+# Optional soft dependency -- a Wyrld Entrance is naturally granted/gated by a quest UUID (and a
+# future party-sharing mechanic rides on the same UUID); the mod works standalone without it, just
+# with no quest-gated entrances.
+[[dependencies.${mod_id}]]
+    modId="myssions"
+    type="optional"
+    reason="Lets a quest grant/gate access to a Wyrld Entrance via the quest's own UUID."
+    ordering="NONE"
+    side="BOTH"
+
+# Optional soft dependency -- a settlement plot type can house a permanent Wyrld Entrance structure
+# (weekly-rotating blueprint); the mod works standalone without it.
+[[dependencies.${mod_id}]]
+    modId="settlemynts"
+    type="optional"
+    reason="Lets a settlement plot type house a Wyrld Entrance structure."
+    ordering="NONE"
+    side="BOTH"
+
+# Optional soft dependency -- the room-blueprint editor mirrors Blueprynts' own Construction Site
+# concept; not a hard code dependency, just the same interaction pattern.
+[[dependencies.${mod_id}]]
+    modId="blueprynts"
+    type="optional"
+    reason="Shares a Construction-Site-style structure for the admin-facing room blueprint editor."
+    ordering="NONE"
+    side="BOTH"
