@@ -111,6 +111,7 @@ public final class OneOffGenerator {
         occupied.putAll(cellStates(first));
         addFrontiers(openFrontiers, first, null);
         int roomsPlaced = 1;
+        logPlacement(first);
 
         int attempts = 0;
         int attemptBudget = Math.max(50, targetRooms * 60);
@@ -138,9 +139,24 @@ public final class OneOffGenerator {
             if (placed.record().type() == WyrldPrintType.ROOM) {
                 roomsPlaced++;
             }
+            logPlacement(placed);
         }
 
         return new PlanResult(placements, roomsPlaced, targetRooms, attempts);
+    }
+
+    /** Diagnostic logging added 2026-10-14 alongside {@code tryPlace}'s own collision-sample
+     *  logging -- that only captures FAILED attempts; this captures every real, accepted placement
+     *  (including its real local bounding box), so a dead-ended layout's full picture (what's
+     *  actually occupying the planning space, not just what collided) can be reconstructed from the
+     *  log after the fact. */
+    private static void logPlacement(Placement placement) {
+        int[] box = worldBoundingBox(placement);
+        com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
+                "OneOffGenerator: placed '{}' ({}) rotation={} origin=(f={},l={},y={}) bbox=(f=[{},{}),l=[{},{}),y=[{},{}))",
+                placement.record().name(), placement.record().type(), placement.rotation(),
+                placement.originForward(), placement.originLateral(), placement.originY(),
+                box[0], box[1], box[2], box[3], box[4], box[5]);
     }
 
     private record PlanResult(List<Placement> placements, int roomsPlaced, int targetRooms, int attempts) {
@@ -151,55 +167,120 @@ public final class OneOffGenerator {
      * the first placement that both matches {@code frontier} and doesn't collide with anything
      * already placed.
      *
-     * <p><b>Collision rule, and why it's air/solid-aware, not a flat "no shared cells" rule</b>:
-     * two genuinely joined pieces' adjoining walls are *expected* to coincide exactly along their
-     * whole shared plane (not just at the one connector cell) -- e.g. two rooms sharing a common
-     * wall with one doorway between them, where every other cell along that wall is solid on both
-     * sides. A plain "any shared cell = collision" check (tried first, see decisions.md) rejected
-     * every real join because of this, since only the 1-2 door cells were ever exempted, leaving
-     * the rest of the shared wall plane to false-flag. A plain bounding-box check (tried before
-     * that) had the opposite problem: shrinking it enough to stop flagging the shared seam also
-     * let real overlaps through for thin pieces. The actual invariant that matters for walkability
-     * is simpler than either: a position is only a genuine problem if one piece wants it *solid*
-     * and the other wants it *air* -- that's the one case that can silently block a passage or
-     * erase content depending on stamp order. Solid-vs-solid (a shared wall) and air-vs-air (two
-     * open spaces overlapping) are both harmless and explicitly allowed.
+     * <p><b>Joined pieces touch, they don't overlap (explicit user spec, 2026-10-14: "connectors
+     * of two prynts should touch, not overlap")</b>: a wall-type join no longer aligns the new
+     * piece's own door to land in the *same cell* as the existing door -- that forced the two
+     * pieces' entire shared wall plane into coincidence (every wall cell along that plane had to
+     * agree, not just the door), which made spurious collisions far more likely than necessary
+     * (e.g. a round room's curved-away corner cell landing on top of a straight piece's solid wall
+     * cell one step further along the same plane, even though the actual doorway itself lined up
+     * fine). The new piece's door is instead aligned 1 cell further out, along the existing door's
+     * own real-world outward {@code facing} ({@code worldForward}/{@code worldLateral} are
+     * literally real-world +X/EAST and +Z/SOUTH -- see {@code WyrldPrintArea.FRONT_DIRECTION}'s own
+     * doc -- so {@code Direction#getStepX/Z} map onto this local space with no extra conversion),
+     * so the two doors land in genuinely adjacent cells instead of the identical one. Floor-type
+     * joins are unaffected (no {@code facing} to shift along -- a floor connector's own vertical
+     * extent already keeps the two pieces from overlapping without needing one).
+     *
+     * <p><b>Collision rule, and why it's still air/solid-aware, not a flat "no shared cells"
+     * rule</b>: even with pieces only touching now, a position is only a genuine problem if one
+     * piece wants it *solid* and the other wants it *air* -- that's the one case that can silently
+     * block a passage or erase content depending on stamp order. Solid-vs-solid and air-vs-air are
+     * both harmless and explicitly allowed; this still matters for the (now much rarer, but not
+     * impossible) case of a piece's geometry bulging into a neighboring piece's own footprint
+     * beyond just the touching doorway.
      */
     private static Placement tryPlace(Frontier frontier, List<WyrldPrintRecord> candidates, Map<LocalPos, Boolean> occupied, RandomSource random) {
+        int noMatchingKindPoint = 0;
+        int facingMismatches = 0;
+        int collisions = 0;
+        boolean sampleLogged = false;
         for (WyrldPrintRecord candidate : candidates) {
             List<WyrldPrintPoint> ownPoints = shuffled(candidate.points().stream().filter(p -> p.wall() == frontier.wall()).toList(), random);
+            if (ownPoints.isEmpty()) {
+                noMatchingKindPoint++;
+                continue;
+            }
             for (WyrldPrintPoint point : ownPoints) {
                 for (Rotation rotation : ALL_ROTATIONS) {
                     if (frontier.wall()) {
                         if (point.facing().isEmpty() || frontier.facing().isEmpty()) {
+                            facingMismatches++;
                             continue;
                         }
                         if (rotation.rotate(point.facing().get()) != frontier.facing().get().getOpposite()) {
+                            facingMismatches++;
                             continue;
                         }
                     }
+                    // Two joined wall pieces should touch at their doorways, not overlap along the
+                    // whole shared wall plane -- explicit user spec, 2026-10-14: "connectors of two
+                    // prynts should touch, not overlap." Shift the alignment target 1 cell further
+                    // out along the existing door's own outward-facing direction (worldForward is
+                    // real-world +X/EAST, worldLateral is real-world +Z/SOUTH -- see
+                    // WyrldPrintArea.FRONT_DIRECTION's own doc -- so Direction#getStepX/Z map
+                    // directly onto this local space with no extra conversion needed), so the two
+                    // doors land in adjacent cells instead of the same one.
+                    int targetForward = frontier.worldForward();
+                    int targetLateral = frontier.worldLateral();
+                    if (frontier.wall()) {
+                        Direction outward = frontier.facing().get();
+                        targetForward += outward.getStepX();
+                        targetLateral += outward.getStepZ();
+                    }
                     int[] rotatedFL = rotateForwardLateral(point.relForward(), point.relLateral(), rotation);
-                    int originForward = frontier.worldForward() - rotatedFL[0];
-                    int originLateral = frontier.worldLateral() - rotatedFL[1];
+                    int originForward = targetForward - rotatedFL[0];
+                    int originLateral = targetLateral - rotatedFL[1];
                     int originY = frontier.worldY() - point.relY();
                     Placement candidatePlacement = new Placement(candidate, rotation, originForward, originLateral, originY);
-                    if (!collides(candidatePlacement, occupied)) {
+                    List<LocalPos> conflicts = findCollisions(candidatePlacement, occupied);
+                    if (conflicts.isEmpty()) {
                         return candidatePlacement;
+                    }
+                    collisions++;
+                    // Diagnostic logging added 2026-10-14 after a real report of every candidate
+                    // colliding for an L-Bend connector's second point -- logs the exact geometry
+                    // of the FIRST failed attempt (candidate, rotation, origin, up to 3 real
+                    // conflicting positions) so the actual overlap can be seen instead of guessed.
+                    if (!sampleLogged) {
+                        sampleLogged = true;
+                        StringBuilder sb = new StringBuilder();
+                        for (int i = 0; i < Math.min(3, conflicts.size()); i++) {
+                            LocalPos p = conflicts.get(i);
+                            sb.append(String.format("(f=%d,l=%d,y=%d) ", p.forward(), p.lateral(), p.y()));
+                        }
+                        com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
+                                "tryPlace: first collision sample -- candidate='{}' rotation={} origin=(f={},l={},y={}) "
+                                        + "ownPoint=(f={},l={},y={}) frontierWorld=(f={},l={},y={}) {} conflict(s), first few: {}",
+                                candidate.name(), rotation, originForward, originLateral, originY,
+                                point.relForward(), point.relLateral(), point.relY(),
+                                frontier.worldForward(), frontier.worldLateral(), frontier.worldY(),
+                                conflicts.size(), sb.toString().trim());
                     }
                 }
             }
         }
+        // Diagnostic logging added 2026-10-14 after a real report of a generate call dead-ending
+        // almost immediately (target 10 rooms, got 1) -- without this, "no match" gave no way to
+        // tell apart a facing/kind mismatch (expected, benign) from every real candidate colliding
+        // (which would suggest a real geometry/collision bug worth chasing).
+        com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
+                "tryPlace: no match for frontier (wall={}, facing={}, ownerType={}) among {} candidate(s) "
+                        + "-- {} had no {}-kind point, {} facing mismatch(es), {} collision(s)",
+                frontier.wall(), frontier.facing(), frontier.ownerType(), candidates.size(),
+                noMatchingKindPoint, frontier.wall() ? "wall" : "floor", facingMismatches, collisions);
         return null;
     }
 
-    private static boolean collides(Placement placement, Map<LocalPos, Boolean> occupied) {
+    private static List<LocalPos> findCollisions(Placement placement, Map<LocalPos, Boolean> occupied) {
+        List<LocalPos> conflicts = new ArrayList<>();
         for (Map.Entry<LocalPos, Boolean> entry : cellStates(placement).entrySet()) {
             Boolean existing = occupied.get(entry.getKey());
             if (existing != null && !existing.equals(entry.getValue())) {
-                return true;
+                conflicts.add(entry.getKey());
             }
         }
-        return false;
+        return conflicts;
     }
 
     /** Every cell this placement would occupy, mapped to whether it's solid (not air). */
