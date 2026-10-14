@@ -20,8 +20,10 @@ import net.minecraft.world.level.block.Blocks;
  * The one permanent, fixed-location authoring zone for building dungeon components ("WyrldPrints")
  * -- centered on Wyrld Space's own origin, 150 (X) x 100 (Z) blocks total, explicit user spec
  * (2026-10-14): a 100x100 free-build "crafting" area, a 50x100 strip of flat cobblestone next to
- * it, and a single obsidian column marking the boundary between them (counted as part of the 50
- * wide strip, so the two areas sum to exactly 150). Carved permanently out of {@code
+ * it, and a single ground-level obsidian block per Z marking the boundary between them (one
+ * block, same shape as the cobblestone floor itself -- corrected same day from an initial,
+ * mistaken 12-tall wall; counted as part of the 50-wide strip, so the two areas still sum to
+ * exactly 150). Carved permanently out of {@code
  * space.WyrldSpaceAllocator}'s universe (see {@link #RESERVED_BOUNDS}) so no real Wyrld instance
  * is ever allocated on top of it.
  *
@@ -54,7 +56,11 @@ public final class WyrldPrintArea {
     public static final int COBBLESTONE_MAX_X = MAX_X; // exclusive, = 75
 
     private static final int FLOOR_Y = WyrldManager.BASELINE_Y - 1;
-    private static final int BOUNDARY_WALL_TOP_Y = WyrldManager.BASELINE_Y + 10;
+    // A first build (2026-10-13) mistakenly stood the boundary marker up as a 12-tall wall --
+    // corrected 2026-10-14 ("the obsidian was meant to be just 1 block on the ground") to a
+    // single ground-level block per Z, matching the cobblestone floor's own shape. This upper
+    // bound is kept only so ensureBuilt can self-heal a dev save that already has the old wall.
+    private static final int OLD_WALL_CLEANUP_TOP_Y = WyrldManager.BASELINE_Y + 10;
 
     /** Extra breathing room beyond the physical structure before the allocator's universe hole starts. */
     private static final int ALLOCATOR_HOLE_MARGIN = 16;
@@ -73,25 +79,33 @@ public final class WyrldPrintArea {
         return contains(pos.getX(), pos.getZ());
     }
 
-    /** Idempotent -- checks a sentinel (the boundary wall's own base block) before doing any work,
-     *  so repeated calls (e.g. every time the dimension loads) are cheap no-ops after the first. */
+    /** Idempotent for the (expensive) cobblestone floor -- skips re-placing it once a sentinel
+     *  block confirms it's already there. The single-block obsidian boundary is cheap enough to
+     *  always re-enforce unconditionally, which doubles as a self-heal for a dev save that
+     *  already has the old, mistakenly-tall wall (see {@link #OLD_WALL_CLEANUP_TOP_Y}). */
     public static void ensureBuilt(ServerLevel level) {
-        BlockPos sentinel = new BlockPos(BOUNDARY_X, FLOOR_Y, MIN_Z);
-        if (level.getBlockState(sentinel).is(Blocks.OBSIDIAN)) {
-            return;
+        boolean floorAlreadyBuilt = level.getBlockState(new BlockPos(COBBLESTONE_MIN_X, FLOOR_Y, MIN_Z)).is(Blocks.COBBLESTONE);
+        if (!floorAlreadyBuilt) {
+            for (int x = COBBLESTONE_MIN_X; x < COBBLESTONE_MAX_X; x++) {
+                for (int z = MIN_Z; z < MAX_Z; z++) {
+                    level.setBlock(new BlockPos(x, FLOOR_Y, z), Blocks.COBBLESTONE.defaultBlockState(), 2);
+                }
+            }
         }
 
-        for (int x = COBBLESTONE_MIN_X; x < COBBLESTONE_MAX_X; x++) {
-            for (int z = MIN_Z; z < MAX_Z; z++) {
-                level.setBlock(new BlockPos(x, FLOOR_Y, z), Blocks.COBBLESTONE.defaultBlockState(), 2);
+        for (int z = MIN_Z; z < MAX_Z; z++) {
+            level.setBlock(new BlockPos(BOUNDARY_X, FLOOR_Y, z), Blocks.OBSIDIAN.defaultBlockState(), 2);
+            for (int y = FLOOR_Y + 1; y <= OLD_WALL_CLEANUP_TOP_Y; y++) {
+                BlockPos pos = new BlockPos(BOUNDARY_X, y, z);
+                if (level.getBlockState(pos).is(Blocks.OBSIDIAN)) {
+                    level.setBlock(pos, Blocks.AIR.defaultBlockState(), 2);
+                }
             }
         }
-        for (int y = FLOOR_Y; y <= BOUNDARY_WALL_TOP_Y; y++) {
-            for (int z = MIN_Z; z < MAX_Z; z++) {
-                level.setBlock(new BlockPos(BOUNDARY_X, y, z), Blocks.OBSIDIAN.defaultBlockState(), 2);
-            }
+
+        if (!floorAlreadyBuilt) {
+            TinyWyrldsMod.LOGGER.info("Built the WyrldPrint crafting area in Wyrld Space.");
         }
-        TinyWyrldsMod.LOGGER.info("Built the WyrldPrint crafting area in Wyrld Space.");
     }
 
     /** Teleports {@code player} directly to the cobblestone staging area (solid footing, next to
