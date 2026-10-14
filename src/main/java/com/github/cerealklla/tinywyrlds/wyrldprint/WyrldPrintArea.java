@@ -55,6 +55,17 @@ public final class WyrldPrintArea {
     public static final int COBBLESTONE_MIN_X = BOUNDARY_X + 1; // = 26
     public static final int COBBLESTONE_MAX_X = MAX_X; // exclusive, = 75
 
+    /** Explicit user spec (2026-10-14): "treat the side facing toward the 50x100 staging area as
+     *  the front" -- the staging area sits at higher X than the crafting zone, so facing toward
+     *  it from inside the crafting zone means facing {@code EAST}. Every WyrldPrint's cells/points
+     *  are stored relative to this one fixed direction (see {@code WyrldPrintCell}'s own doc). */
+    public static final net.minecraft.core.Direction FRONT_DIRECTION = net.minecraft.core.Direction.EAST;
+
+    /** Vertical range scanned by {@code WyrldPrintCapture} relative to {@code BASELINE_Y} -- a
+     *  placeholder, generous enough for ordinary rooms, easy to widen later if needed. */
+    public static final int CAPTURE_BELOW_BASELINE = 32;
+    public static final int CAPTURE_ABOVE_BASELINE = 160;
+
     private static final int FLOOR_Y = WyrldManager.BASELINE_Y - 1;
     // A first build (2026-10-13) mistakenly stood the boundary marker up as a 12-tall wall --
     // corrected 2026-10-14 ("the obsidian was meant to be just 1 block on the ground") to a
