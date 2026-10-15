@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "minecraft:model",
+    "model": "tinywyrlds:item/loot_spawn_common"
+  }
+}
