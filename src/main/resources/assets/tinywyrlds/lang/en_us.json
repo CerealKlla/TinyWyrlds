@@ -6,5 +6,11 @@
   "block.tinywyrlds.connector_point_floor_medium": "Connector Point (3x3, Floor/Ceiling)",
   "block.tinywyrlds.connector_point_floor_large": "Connector Point (5x5, Floor/Ceiling)",
   "block.tinywyrlds.spawn_location": "Spawn Location",
-  "block.tinywyrlds.wyrld_workbench": "Wyrld Workbench"
+  "block.tinywyrlds.wyrld_workbench": "Wyrld Workbench",
+  "block.tinywyrlds.loot_spawn_common": "Loot Spawn (Common)",
+  "block.tinywyrlds.loot_spawn_rare": "Loot Spawn (Rare)",
+  "block.tinywyrlds.loot_spawn_epic": "Loot Spawn (Epic)",
+  "block.tinywyrlds.enemy_spawn": "Enemy Spawn",
+  "block.tinywyrlds.friendly_spawn": "Friendly Spawn",
+  "block.tinywyrlds.interactive_component": "Interactive Component"
 }

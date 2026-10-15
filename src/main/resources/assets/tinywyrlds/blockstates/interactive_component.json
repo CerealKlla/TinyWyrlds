@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "tinywyrlds:block/interactive_component" }
+  }
+}

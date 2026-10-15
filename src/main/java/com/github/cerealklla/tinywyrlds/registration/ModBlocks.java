@@ -1,10 +1,15 @@
 package com.github.cerealklla.tinywyrlds.registration;
 
+import java.util.EnumMap;
+import java.util.Map;
+
 import com.github.cerealklla.tinywyrlds.TinyWyrldsMod;
 import com.github.cerealklla.tinywyrlds.wyrldprint.SpawnLocationBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorPointSize;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.FloorConnectorPointBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.WallConnectorPointBlock;
+import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerBlock;
+import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerKind;
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.WyrldWorkbenchBlock;
 
 import net.minecraft.core.registries.Registries;
@@ -47,6 +52,22 @@ public final class ModBlocks {
                     .mapColor(MapColor.WOOD)
                     .strength(2.5F)
                     .setId(ResourceKey.create(Registries.BLOCK, key))));
+
+    /** The six "possible content" marker blocks (loot x3 tiers, enemy, friendly, interactive) --
+     *  see {@code wyrldprint.marker.MarkerKind}'s own doc. */
+    public static final Map<MarkerKind, DeferredBlock<MarkerBlock>> MARKERS = registerMarkers();
+
+    private static Map<MarkerKind, DeferredBlock<MarkerBlock>> registerMarkers() {
+        Map<MarkerKind, DeferredBlock<MarkerBlock>> result = new EnumMap<>(MarkerKind.class);
+        for (MarkerKind kind : MarkerKind.values()) {
+            result.put(kind, BLOCKS.register(kind.id(), key -> new MarkerBlock(kind, BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_GRAY)
+                    .strength(3.0F)
+                    .pushReaction(PushReaction.DESTROY)
+                    .setId(ResourceKey.create(Registries.BLOCK, key)))));
+        }
+        return result;
+    }
 
     private static DeferredBlock<WallConnectorPointBlock> registerWall(String id, ConnectorPointSize size) {
         return BLOCKS.register(id, key -> new WallConnectorPointBlock(size, BlockBehaviour.Properties.of()

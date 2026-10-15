@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "tinywyrlds:block/loot_spawn_common" }
+  }
+}

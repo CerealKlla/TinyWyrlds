@@ -93,6 +93,7 @@ public class TinyWyrldsMod {
         event.accept(ModItems.CONNECTOR_POINT_FLOOR_LARGE_ITEM.get());
         event.accept(ModItems.SPAWN_LOCATION_ITEM.get());
         event.accept(ModItems.WYRLD_WORKBENCH_ITEM.get());
+        ModItems.MARKER_ITEMS.values().forEach(item -> event.accept(item.get()));
     }
 
     /** Backs {@code workbench.WyrldWorkbenchBlock}'s GUI -- each handler calls straight into the
