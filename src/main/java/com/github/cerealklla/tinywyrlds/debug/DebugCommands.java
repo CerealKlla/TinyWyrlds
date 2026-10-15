@@ -78,7 +78,11 @@ public final class DebugCommands {
                                                 .executes(ctx -> selectionTest(ctx.getSource(),
                                                         IntegerArgumentType.getInteger(ctx, "trials"),
                                                         IntegerArgumentType.getInteger(ctx, "minRooms"),
-                                                        IntegerArgumentType.getInteger(ctx, "maxRooms"))))))));
+                                                        IntegerArgumentType.getInteger(ctx, "maxRooms")))))))
+                .then(Commands.literal("regenerate")
+                        .then(Commands.argument("id", StringArgumentType.greedyString())
+                                .executes(ctx -> regenerateDungeon(ctx.getSource(),
+                                        StringArgumentType.getString(ctx, "id"))))));
     }
 
     private static int saveWyrldPrint(CommandSourceStack source, String name, String typeArg) {
@@ -170,9 +174,48 @@ public final class DebugCommands {
             } else {
                 WyrldManager.enter(player, instance.id());
             }
-            source.sendSuccess(() -> Component.literal("Generated and entered a one-off Wyrld " + instance.id()), false);
+            source.sendSuccess(() -> Component.literal("Generated and entered a one-off Wyrld " + instance.id()
+                    + " -- layout saved as " + result.dungeonId() + " (regenerate with /tinywyrlds regenerate "
+                    + result.dungeonId() + ")"), false);
         } else {
             source.sendSuccess(() -> Component.literal("Generated a one-off Wyrld " + instance.id()
+                    + " (no player to enter -- run from RCON/console) -- layout saved as " + result.dungeonId()), false);
+        }
+        return 1;
+    }
+
+    /** Explicit user spec, 2026-10-14: "add a command to regenerate <ID>" -- re-stamps a
+     *  previously saved layout ({@code generate}'s own "GeneratedDungeon" save) into a fresh Wyrld
+     *  instance, same pieces/rotations/door-sealing, verbatim. */
+    private static int regenerateDungeon(CommandSourceStack source, String idArg) {
+        java.util.UUID id;
+        try {
+            id = java.util.UUID.fromString(idArg);
+        } catch (IllegalArgumentException e) {
+            source.sendFailure(Component.literal("'" + idArg + "' isn't a valid dungeon id."));
+            return 0;
+        }
+        OneOffGenerator.GenerateResult result;
+        try {
+            result = OneOffGenerator.regenerate(source.getServer(), id);
+        } catch (IllegalStateException e) {
+            source.sendFailure(Component.literal(e.getMessage()));
+            return 0;
+        }
+        if (result == null) {
+            source.sendFailure(Component.literal("No saved dungeon with id " + id + "."));
+            return 0;
+        }
+        WyrldInstanceRecord instance = result.instance();
+        if (source.getEntity() instanceof ServerPlayer player) {
+            if (!result.spawnPoints().isEmpty()) {
+                WyrldManager.enterAt(player, instance.id(), result.spawnPoints().get(0));
+            } else {
+                WyrldManager.enter(player, instance.id());
+            }
+            source.sendSuccess(() -> Component.literal("Regenerated dungeon " + id + " as Wyrld " + instance.id()), false);
+        } else {
+            source.sendSuccess(() -> Component.literal("Regenerated dungeon " + id + " as Wyrld " + instance.id()
                     + " (no player to enter -- run from RCON/console)."), false);
         }
         return 1;

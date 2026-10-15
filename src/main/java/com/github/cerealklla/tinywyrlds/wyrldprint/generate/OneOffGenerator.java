@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import com.github.cerealklla.tinywyrlds.instance.WyrldInstanceRecord;
 import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
@@ -87,7 +88,11 @@ public final class OneOffGenerator {
     private static final Rotation[] ALL_ROTATIONS = {Rotation.NONE, Rotation.CLOCKWISE_90, Rotation.CLOCKWISE_180, Rotation.COUNTERCLOCKWISE_90};
 
     /** @return the created Wyrld instance (plus its real spawn position, if an ENTRANCE was
-     *  placed), or {@code null} if no ROOM/ENTRANCE WyrldPrints are saved at all. */
+     *  placed), or {@code null} if no ROOM/ENTRANCE WyrldPrints are saved at all. The real layout
+     *  (which pieces, at what rotation/position, plus the door-sealing result) is also saved to
+     *  {@code GeneratedDungeonStorage} under a fresh id -- explicit user spec, 2026-10-14: "when a
+     *  dungeon is generated I'd like the layout to be saved into a GeneratedDungeon folder... so we
+     *  can regenerate the same layout." See {@link #regenerate} for the other half of this. */
     public static GenerateResult generate(MinecraftServer server, int minRooms, int maxRooms) {
         PlanResult plan = planPlacements(minRooms, maxRooms);
         if (plan == null) {
@@ -96,7 +101,60 @@ public final class OneOffGenerator {
         com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
                 "OneOffGenerator: placed {} piece(s) ({} room(s), target {}) in {} attempt(s)",
                 plan.placements().size(), plan.roomsPlaced(), plan.targetRooms(), plan.attempts());
-        return stamp(server, plan.placements(), plan.entrancePlacement(), plan.doorSeals());
+
+        UUID dungeonId = UUID.randomUUID();
+        List<GeneratedDungeonRecord.SavedPlacement> savedPlacements = plan.placements().stream()
+                .map(p -> new GeneratedDungeonRecord.SavedPlacement(p.record().name(), p.record().type(), p.rotation(),
+                        p.originForward(), p.originLateral(), p.originY()))
+                .toList();
+        List<GeneratedDungeonRecord.SealedCell> sealedCells = plan.doorSeals().entrySet().stream()
+                .map(e -> new GeneratedDungeonRecord.SealedCell(e.getKey().forward(), e.getKey().lateral(), e.getKey().y(), e.getValue()))
+                .toList();
+        GeneratedDungeonStorage.get().save(new GeneratedDungeonRecord(dungeonId, savedPlacements, sealedCells));
+
+        return stamp(server, plan.placements(), plan.entrancePlacement(), plan.doorSeals(), dungeonId);
+    }
+
+    /** Re-stamps a previously saved layout (see {@link #generate}'s own doc) into a fresh Wyrld
+     *  instance -- same real pieces (re-fetched from {@code WyrldPrintStorage} by name/type, so an
+     *  edit to one of them since the original generate is reflected here), same rotations/origins,
+     *  same door-sealing result, verbatim. Deliberately does not re-run any of the matching/growth
+     *  logic -- there is nothing left to randomize structurally. A future mob/loot system rolling
+     *  fresh random choices on every regenerate (explicit user spec: "Mob Spawn choices, loot box
+     *  locations, loot pools, mob pools all remain randomized") has nothing to do with this record
+     *  at all, by construction -- it was never saved here.
+     *
+     * @return {@code null} if no saved dungeon has this id.
+     * @throws IllegalStateException if a referenced WyrldPrint no longer exists (renamed/deleted
+     *     since the original generate) -- surfaced as a clear command failure rather than silently
+     *     generating an incomplete dungeon. */
+    public static GenerateResult regenerate(MinecraftServer server, UUID dungeonId) {
+        Optional<GeneratedDungeonRecord> saved = GeneratedDungeonStorage.get().load(dungeonId);
+        if (saved.isEmpty()) {
+            return null;
+        }
+        GeneratedDungeonRecord record = saved.get();
+
+        List<Placement> placements = new ArrayList<>();
+        for (GeneratedDungeonRecord.SavedPlacement savedPlacement : record.placements()) {
+            WyrldPrintRecord piece = WyrldPrintStorage.get().load(savedPlacement.pieceName())
+                    .filter(r -> r.type() == savedPlacement.pieceType())
+                    .orElseThrow(() -> new IllegalStateException("WyrldPrint '" + savedPlacement.pieceName()
+                            + "' (" + savedPlacement.pieceType() + ") no longer exists -- can't regenerate dungeon " + dungeonId));
+            placements.add(new Placement(piece, savedPlacement.rotation(), savedPlacement.originForward(),
+                    savedPlacement.originLateral(), savedPlacement.originY()));
+        }
+        Placement entrancePlacement = !placements.isEmpty() && placements.get(0).record().type() == WyrldPrintType.ENTRANCE
+                ? placements.get(0) : null;
+
+        Map<LocalPos, BlockState> doorSeals = new HashMap<>();
+        for (GeneratedDungeonRecord.SealedCell sealedCell : record.doorSeals()) {
+            doorSeals.put(new LocalPos(sealedCell.forward(), sealedCell.lateral(), sealedCell.y()), sealedCell.state());
+        }
+
+        com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
+                "OneOffGenerator: regenerated dungeon {} ({} piece(s))", dungeonId, placements.size());
+        return stamp(server, placements, entrancePlacement, doorSeals, dungeonId);
     }
 
     /** Debug-only (see {@code DebugCommands}'s {@code selectiontest}): runs the exact same planning
@@ -394,8 +452,10 @@ public final class OneOffGenerator {
      *  {@code WyrldPrintSpawn} marker(s), translated into real world coordinates. More than one is
      *  expected and fine (explicit user spec, 2026-10-14: "if a party arrives they all need their
      *  own spawn point"); empty if no ENTRANCE was available/placed (caller falls back to the
-     *  Wyrld's own generic inner-rect center). */
-    public record GenerateResult(WyrldInstanceRecord instance, List<BlockPos> spawnPoints) {
+     *  Wyrld's own generic inner-rect center). {@code dungeonId} is {@code null} when this result
+     *  came from {@link #regenerate} -- re-saving an already-saved layout under a new id would just
+     *  accumulate duplicate files for no reason. */
+    public record GenerateResult(WyrldInstanceRecord instance, List<BlockPos> spawnPoints, UUID dungeonId) {
     }
 
     /**
@@ -617,7 +677,7 @@ public final class OneOffGenerator {
      *  (doors, cobblestone, wool, candles, etc.) rotates correctly with no world context. */
     @SuppressWarnings("deprecation")
     private static GenerateResult stamp(MinecraftServer server, List<Placement> placements, Placement entrancePlacement,
-                                         Map<LocalPos, BlockState> doorSeals) {
+                                         Map<LocalPos, BlockState> doorSeals, UUID dungeonId) {
         int minF = Integer.MAX_VALUE, maxF = Integer.MIN_VALUE, minL = Integer.MAX_VALUE, maxL = Integer.MIN_VALUE;
         for (Placement placement : placements) {
             int[] box = worldBoundingBox(placement);
@@ -630,7 +690,7 @@ public final class OneOffGenerator {
         WyrldInstanceRecord instance = WyrldManager.createWyrld(server, (maxF - minF) + 2 * MARGIN, (maxL - minL) + 2 * MARGIN);
         ServerLevel level = server.getLevel(WyrldSpaceDimension.KEY);
         if (level == null) {
-            return new GenerateResult(instance, List.of());
+            return new GenerateResult(instance, List.of(), dungeonId);
         }
         FreeRect inner = instance.innerRect();
         int worldForwardOffset = inner.x1() + MARGIN - minF;
@@ -652,23 +712,9 @@ public final class OneOffGenerator {
                 BlockState finalState;
                 if (seal != null) {
                     finalState = seal;
-                    // Temporary diagnostic logging, 2026-10-14 -- a real live report of open
-                    // doorways persisting after multiple fix rounds; logs every real sealed
-                    // position/material so a reported gap's exact world coordinates can be checked
-                    // directly against what actually happened there, instead of guessing again.
-                    com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
-                            "doorSeal: sealed world ({},{},{}) with {} (piece='{}')",
-                            worldX, worldY, worldZ, seal, placement.record().name());
                 } else {
                     BlockState rotated = cell.state().rotate(placement.rotation());
-                    if (isConnectorArtifact(rotated)) {
-                        finalState = Blocks.AIR.defaultBlockState();
-                        com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
-                                "doorSeal: connector artifact at world ({},{},{}) turned to AIR, no seal available (piece='{}')",
-                                worldX, worldY, worldZ, placement.record().name());
-                    } else {
-                        finalState = rotated;
-                    }
+                    finalState = isConnectorArtifact(rotated) ? Blocks.AIR.defaultBlockState() : rotated;
                 }
                 pending.add(new PendingCell(new BlockPos(worldX, worldY, worldZ), finalState, worldY));
             }
@@ -688,7 +734,7 @@ public final class OneOffGenerator {
                 spawnPoints.add(new BlockPos(worldX, worldY, worldZ));
             }
         }
-        return new GenerateResult(instance, spawnPoints);
+        return new GenerateResult(instance, spawnPoints, dungeonId);
     }
 
     /** A real generated dungeon never shows the raw Connector Point door/trapdoor or its glass

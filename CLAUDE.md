@@ -108,5 +108,24 @@ system" — explicit user instruction, to avoid confusion with Blueprynts' own "
   directly to another connector (always sit between two rooms), and a new `selectiontest` debug
   command reports real per-piece selection-frequency counts instead of guessing from a handful of
   manual `generate` calls.
+- **Seven real rounds of live bug-fixing on generation/dead-end handling, same day, all
+  confirmed live** (see [context/classes/WyrldPrintMechanic.md](context/classes/WyrldPrintMechanic.md)
+  for the blow-by-blow): connector size matching enforced; a real regression where a wall-type join
+  re-opened its own just-consumed door (inflating room counts with duplicates); a guarantee that no
+  frontier is ever left a real unused dead end (a "closing pass" using dedicated 1-door endcap
+  rooms, tried as a last resort during growth too, not only once growth stops); the `ENTRANCE`
+  corrected to not count toward `minRooms`/`maxRooms` and to always get a connector attached rather
+  than a direct room join; and — after six iterations chasing it — a confirmed, understood root
+  cause for open "dead" doorways (a cell already holding the connector's own real door/trapdoor
+  block was wrongly treated as "already real content, leave alone," so it never got sealed).
+  **Confirmed live**: "I went through two very large dungeons and found no more empty doors."
+- **Generated dungeons now save their structural layout, same day** (see
+  [context/classes/GeneratedDungeon.md](context/classes/GeneratedDungeon.md)), explicit user spec:
+  "save the layout into a GeneratedDungeon folder... so we can regenerate the same layout." Only the
+  room arrangement/doors/door-sealing result is saved (by a fresh UUID); nothing about mob/loot
+  content, since none of that exists yet — the record is shaped so a future mob/loot system has
+  nowhere to put per-generation random state, keeping that randomized on every regenerate by
+  construction. New `/tinywyrlds regenerate <id>` command. `./gradlew build`/`test` green; **not
+  yet live-tested**.
 
 See [context/classes/](context/classes/) for per-class reference.
