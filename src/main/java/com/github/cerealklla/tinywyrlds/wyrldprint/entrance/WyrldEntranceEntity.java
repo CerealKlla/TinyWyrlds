@@ -1,15 +1,16 @@
 package com.github.cerealklla.tinywyrlds.wyrldprint.entrance;
 
-import java.util.List;
 import java.util.UUID;
 
 import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
+import com.github.cerealklla.tinywyrlds.registration.ModBlocks;
 import com.github.cerealklla.tinywyrlds.space.WyrldSpaceData;
 import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldRecipe;
 import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldRecipeStorage;
 import com.github.cerealklla.tinywyrlds.wyrldprint.generate.OneOffGenerator;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -17,16 +18,26 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Display;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 
 /**
  * The real, in-world "Entrance" from the original spec's own section 4 -- a quest-triggered,
  * temporary one for now (the settlement-plot-hosted recurring variant is Settlemynts/Blueprynts'
- * own follow-up work, see design-document.md). Visually {@code Blocks.CRYING_OBSIDIAN} (a real
- * vanilla block with its own built-in particle/glow, so this needed zero new texture/renderer work
- * beyond the generic {@code Display.BlockDisplay} renderer every such entity in this suite reuses).
+ * own follow-up work, see design-document.md). Visually renders the same gold-tinted
+ * nether-portal-look block state as {@link ExitPortalBlock} (not actually placed as a real block
+ * here -- a {@code Display.BlockDisplay} can render any {@code BlockState} purely cosmetically),
+ * per explicit user request 2026-10-15: "I want the entrance to be similar [visually, and to walk
+ * into] to actually enter the Wyrld" -- a symmetric portal experience both ways.
+ *
+ * <p><b>Walk-in trigger, not right-click</b> (same 2026-10-15 request) -- {@link
+ * WyrldEntranceProximityTicker} checks every online owning player's distance to this entity each
+ * tick and calls {@link #enter} the moment they're close enough, same spirit as {@link
+ * ExitPortalBlock}'s own real vanilla {@code Portal} walk-through trigger. This entity can't use
+ * that exact vanilla mechanism itself ({@code Entity#setAsInsidePortal} is a block-collision hook,
+ * not available to entities), which is the real reason it's a tick-based proximity check instead --
+ * see that ticker's own doc for the full account, including why re-triggering on the same visit
+ * isn't a concern (the teleport itself moves the player out of range before the next tick).
  *
  * <p><b>Per-player visibility</b> (explicit spec: "would only be visible to players with that
  * quest's UUID accepted") -- {@link #broadcastToPlayer}, same mechanism Myssions' own {@code
@@ -35,20 +46,17 @@ import net.minecraft.world.level.storage.ValueOutput;
  * #ownerPlayerId} is a single player for now -- "allowing a future quest sharing mechanic to work
  * for all party members" is explicitly deferred (no party system exists anywhere in this suite yet,
  * same honest-gap framing Myssions' own escort/road-quest work already uses for party sharing).
+ * This is also exactly why this stays an entity instead of becoming a real placed {@code
+ * ExitPortalBlock} itself -- a real block's state syncs to every client with the chunk loaded, with
+ * no way to hide it from non-owning players the way an entity's spawn packet can be withheld.
  *
  * <p><b>Lazy, remembered generation</b> ("entering generates a Wyrld... with that UUID as the
  * name" -- read here as "the Entrance's own id deterministically identifies which Wyrld it leads
  * to," not "regenerate every time"): {@link #enter} generates a fresh Wyrld from {@link
  * #recipeName} only the first time, then remembers {@link #generatedWyrldId} and simply re-enters
- * the same instance on every later interaction, until the periodic idle sweep ({@code
+ * the same instance on every later visit, until the periodic idle sweep ({@code
  * WyrldManager#tick}) eventually wipes it -- at which point the next {@link #enter} call generates
  * a fresh one again, same as it would have the first time.
- *
- * <p>Interaction itself is handled externally by the always-registered {@link
- * WyrldEntranceInteractListener} (a plain {@code PlayerInteractEvent.EntityInteract} listener, same
- * externalized-interaction precedent as Myssions' own {@code quest.QuestNpcTalkListener}), not a
- * {@code mobInteract}/{@code interact} override here -- this keeps the actual entry logic callable
- * directly (e.g. by a future debug command) without needing a fake interaction to trigger it.
  */
 public class WyrldEntranceEntity extends Display.BlockDisplay {
 
@@ -58,7 +66,9 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
     private UUID generatedWyrldId;
 
     /** Not persisted -- see {@link EntranceEnterResult}'s own doc for why this is purely an
-     *  in-memory hand-off to whichever external listener reads it right after {@link #enter}. */
+     *  in-memory hand-off, now also mirrored into {@link EntranceEnterResults} (a global,
+     *  entity-independent lookup -- see that class's own doc for why this entity-local copy alone
+     *  isn't enough once entry is proximity-triggered rather than interact-triggered). */
     private EntranceEnterResult lastEnterResult;
 
     public WyrldEntranceEntity(EntityType<? extends WyrldEntranceEntity> type, Level level) {
@@ -71,7 +81,7 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
         entity.entranceId = entranceId;
         entity.recipeName = recipeName;
         entity.ownerPlayerId = ownerPlayerId;
-        BlockDisplayHelper.setBlockState(entity, Blocks.CRYING_OBSIDIAN.defaultBlockState());
+        BlockDisplayHelper.setBlockState(entity, ModBlocks.EXIT_PORTAL.get().defaultBlockState().setValue(ExitPortalBlock.AXIS, Direction.Axis.Z));
         level.addFreshEntity(entity);
         return entity;
     }
@@ -92,8 +102,7 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
             return false;
         }
         if (generatedWyrldId != null && WyrldSpaceData.get(player.level().getServer()).getInstance(generatedWyrldId).isPresent()) {
-            lastEnterResult = new EntranceEnterResult(generatedWyrldId, List.of(), false);
-            grantReturnItem(player);
+            recordEnterResult(new EntranceEnterResult(generatedWyrldId, java.util.List.of(), false));
             return WyrldManager.enter(player, generatedWyrldId);
         }
 
@@ -108,36 +117,23 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
             return false;
         }
         generatedWyrldId = result.instance().id();
-        lastEnterResult = new EntranceEnterResult(generatedWyrldId, result.spawnedEnemyIds(), true);
-        grantReturnItem(player);
+        recordEnterResult(new EntranceEnterResult(generatedWyrldId, result.spawnedEnemyIds(), true));
         if (!result.spawnPoints().isEmpty()) {
             return WyrldManager.enterAt(player, generatedWyrldId, result.spawnPoints().get(0));
         }
         return WyrldManager.enter(player, generatedWyrldId);
     }
 
-    /** "The player then has to escape or something like that" -- the concrete v1 realization: a
-     *  real, non-consumable {@code WyrldReturnItem} that teleports them back out, auto-granted the
-     *  moment they're sent in so there's always a real way out even for a player who's never heard
-     *  of {@code /tinywyrlds leave} (a debug-only command, not a real player-facing mechanic). */
-    private void grantReturnItem(ServerPlayer player) {
-        if (!player.getInventory().contains(new net.minecraft.world.item.ItemStack(
-                com.github.cerealklla.tinywyrlds.registration.ModItems.WYRLD_RETURN_ITEM.get()))) {
-            player.getInventory().add(new net.minecraft.world.item.ItemStack(
-                    com.github.cerealklla.tinywyrlds.registration.ModItems.WYRLD_RETURN_ITEM.get()));
+    private void recordEnterResult(EntranceEnterResult result) {
+        lastEnterResult = result;
+        if (entranceId != null) {
+            EntranceEnterResults.record(entranceId, result);
         }
     }
 
     @Override
     public boolean broadcastToPlayer(ServerPlayer player) {
         return ownerPlayerId == null || ownerPlayerId.equals(player.getUUID());
-    }
-
-    @Override
-    public boolean isPickable() {
-        // Vanilla Display entities default to non-pickable (purely decorative) -- explicitly
-        // overridden true here since this one specifically needs to be right-click-interactable.
-        return true;
     }
 
     @Override

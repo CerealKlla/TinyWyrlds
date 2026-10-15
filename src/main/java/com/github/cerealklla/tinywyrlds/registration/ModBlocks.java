@@ -8,6 +8,7 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.SpawnLocationBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorPointSize;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.FloorConnectorPointBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.WallConnectorPointBlock;
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.ExitPortalBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerKind;
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.WyrldWorkbenchBlock;
@@ -51,6 +52,18 @@ public final class ModBlocks {
             key -> new WyrldWorkbenchBlock(BlockBehaviour.Properties.of()
                     .mapColor(MapColor.WOOD)
                     .strength(2.5F)
+                    .setId(ResourceKey.create(Registries.BLOCK, key))));
+
+    /** The real "Exit Structure" -- see {@code wyrldprint.entrance.ExitPortalBlock}'s own doc.
+     *  Properties mirror vanilla's own {@code Blocks.NETHER_PORTAL} registration (unbreakable,
+     *  no collision, random-tick-free here since this has no piglin-spawning equivalent). */
+    public static final DeferredBlock<ExitPortalBlock> EXIT_PORTAL = BLOCKS.register("exit_portal",
+            key -> new ExitPortalBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.GOLD)
+                    .noCollision()
+                    .noOcclusion()
+                    .lightLevel(state -> 11)
+                    .strength(-1.0F)
                     .setId(ResourceKey.create(Registries.BLOCK, key))));
 
     /** The six "possible content" marker blocks (loot x3 tiers, enemy, friendly, interactive) --

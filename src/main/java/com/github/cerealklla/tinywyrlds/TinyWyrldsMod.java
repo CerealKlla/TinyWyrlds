@@ -6,6 +6,7 @@ import com.github.cerealklla.tinywyrlds.debug.DebugCommands;
 import com.github.cerealklla.tinywyrlds.instance.WyrldInstanceRecord;
 import com.github.cerealklla.tinywyrlds.instance.WyrldLifecycleTicker;
 import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
+import com.github.cerealklla.tinywyrlds.instance.WyrldRespawnListener;
 import com.github.cerealklla.tinywyrlds.registration.ModAttachments;
 import com.github.cerealklla.tinywyrlds.registration.ModBlocks;
 import com.github.cerealklla.tinywyrlds.registration.ModEntities;
@@ -15,7 +16,7 @@ import com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension;
 import com.github.cerealklla.tinywyrlds.voxel.VoxelLockListener;
 import com.github.cerealklla.tinywyrlds.wyrldprint.CreativeZoneTicker;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintAreaSetupListener;
-import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceInteractListener;
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceProximityTicker;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintCapture;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintPlacement;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintRecord;
@@ -72,7 +73,8 @@ public class TinyWyrldsMod {
         NeoForge.EVENT_BUS.register(new WyrldPrintAreaSetupListener());
         NeoForge.EVENT_BUS.register(new CreativeZoneTicker());
         NeoForge.EVENT_BUS.register(new AdvancementBlocker());
-        NeoForge.EVENT_BUS.register(new WyrldEntranceInteractListener());
+        NeoForge.EVENT_BUS.register(new WyrldEntranceProximityTicker());
+        NeoForge.EVENT_BUS.register(new WyrldRespawnListener());
         NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) -> DebugCommands.register(event.getDispatcher()));
     }
 

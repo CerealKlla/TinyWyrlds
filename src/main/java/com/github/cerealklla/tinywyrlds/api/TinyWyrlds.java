@@ -1,7 +1,10 @@
 package com.github.cerealklla.tinywyrlds.api;
 
+import java.util.Optional;
 import java.util.UUID;
 
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.EntranceEnterResult;
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.EntranceEnterResults;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceEntity;
 
 import net.minecraft.core.BlockPos;
@@ -43,5 +46,14 @@ public final class TinyWyrlds {
                 e -> entranceId.equals(e.entranceId()))) {
             entrance.discard();
         }
+    }
+
+    /** What the last real entry through this entrance id produced, if any -- a plain synchronous
+     *  read against {@code EntranceEnterResults} (see its own doc), so a caller like Myssions'
+     *  {@code bridge.TinyWyrldsEntranceBridge} can poll for "has a player entered yet, and what
+     *  entity did the ENEMY pool spawn" from its own periodic ticker, matching this suite's own
+     *  established bridge-polls-the-source-mod convention rather than needing any shared event. */
+    public static Optional<EntranceEnterResult> getEnterResult(UUID entranceId) {
+        return EntranceEnterResults.get(entranceId);
     }
 }

@@ -1,5 +1,6 @@
 package com.github.cerealklla.tinywyrlds;
 
+import com.github.cerealklla.tinywyrlds.registration.ModBlocks;
 import com.github.cerealklla.tinywyrlds.registration.ModEntities;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceRenderer;
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.ClientWyrldPrintRequests;
@@ -12,6 +13,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 
 // This class will not load on dedicated servers. Accessing client side code from here is safe --
 // same precedent as every other mod in this suite's own *ModClient (see Blueprynts' CLAUDE.md).
@@ -19,9 +21,19 @@ import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 @EventBusSubscriber(modid = TinyWyrldsMod.MODID, value = Dist.CLIENT)
 public class TinyWyrldsModClient {
 
+    /** Gold tint for {@code ModBlocks.EXIT_PORTAL} -- "a different color if possible, maybe gold"
+     *  (see {@code wyrldprint.entrance.ExitPortalBlock}'s own doc for why multiply-tinting the
+     *  real nether_portal texture is the real color-math here, not a true clean gold). */
+    private static final int GOLD_TINT = 0xFFD700;
+
     @SubscribeEvent
     static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(ModEntities.WYRLD_ENTRANCE.get(), WyrldEntranceRenderer::new);
+    }
+
+    @SubscribeEvent
+    static void onRegisterBlockTintSources(RegisterColorHandlersEvent.BlockTintSources event) {
+        event.register(java.util.List.of(state -> GOLD_TINT), ModBlocks.EXIT_PORTAL.get());
     }
 
     /** Polls the zero-server-refs bridge for a pending Workbench screen-open request every client

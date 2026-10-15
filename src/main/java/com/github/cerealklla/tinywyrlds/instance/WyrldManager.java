@@ -93,38 +93,67 @@ public final class WyrldManager {
         PlayerWyrldData current = player.getData(ModAttachments.WYRLD_DATA);
         player.setData(ModAttachments.WYRLD_DATA, current.enteringWyrld(wyrldId, from));
 
+        BlockPos spawnBlockPos;
         double x, y, z;
         if (exactPos != null) {
+            spawnBlockPos = exactPos;
             x = exactPos.getX() + 0.5;
             y = exactPos.getY();
             z = exactPos.getZ() + 0.5;
         } else {
             FreeRect inner = instance.innerRect();
+            spawnBlockPos = new BlockPos((int) Math.floor(inner.centerX()), instance.baselineY(), (int) Math.floor(inner.centerZ()));
             x = inner.centerX() + 0.5;
             y = instance.baselineY();
             z = inner.centerZ() + 0.5;
         }
+        // Explicit user spec, 2026-10-15: "if a player dies [in a Wyrld] they should respawn at
+        // the Spawn Point they were given when entering" -- remembered here (not cleared on leave,
+        // see PlayerWyrldData's own doc), read back by WyrldRespawnListener.
+        player.setData(ModAttachments.WYRLD_DATA, player.getData(ModAttachments.WYRLD_DATA).withWyrldSpawnPos(spawnBlockPos));
         player.teleportTo(wyrldLevel, x, y, z, Set.of(), player.getYRot(), player.getXRot(), true);
+        com.github.cerealklla.tinywyrlds.wyrldprint.entrance.ExitPortalBlock.ensurePlaced(wyrldLevel, spawnBlockPos);
 
         reviveIfStale(server, instance);
         return true;
     }
 
-    /** Teleports {@code player} back to wherever they entered their current Wyrld from. */
-    public static boolean leave(ServerPlayer player) {
+    /** Shared by {@link #leave} and {@code wyrldprint.entrance.ExitPortalBlock}'s own {@code
+     *  Portal#getPortalDestination} -- resolves where a leave should land (and clears the player's
+     *  own Wyrld-tracking state) without actually performing the teleport, so the portal block can
+     *  hand the resulting {@code TeleportTransition} back to vanilla's own portal-standing system
+     *  instead of teleporting directly itself. @return {@code null} if {@code player} isn't
+     *  currently tracked as being inside any Wyrld. */
+    public static LeaveDestination resolveLeaveDestination(ServerPlayer player) {
         MinecraftServer server = player.level().getServer();
         PlayerWyrldData current = player.getData(ModAttachments.WYRLD_DATA);
         if (current.returnPos().isEmpty()) {
-            return false;
+            return null;
         }
         GlobalPos returnPos = current.returnPos().get();
         ServerLevel returnLevel = server.getLevel(returnPos.dimension());
         if (returnLevel == null) {
-            return false;
+            return null;
         }
         player.setData(ModAttachments.WYRLD_DATA, current.leavingWyrld());
-        BlockPos pos = returnPos.pos();
-        player.teleportTo(returnLevel, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5,
+        return new LeaveDestination(returnLevel, returnPos.pos());
+    }
+
+    public record LeaveDestination(ServerLevel level, BlockPos pos) {
+    }
+
+    /** Teleports {@code player} back to wherever they entered their current Wyrld from -- kept
+     *  for {@code /tinywyrlds leave} and the (deliberately still-registered, just no longer
+     *  auto-granted on entry) {@code wyrldprint.entrance.WyrldReturnItem}. The real player-facing
+     *  exit mechanic is now {@code wyrldprint.entrance.ExitPortalBlock}, which uses {@link
+     *  #resolveLeaveDestination} directly instead of this method. */
+    public static boolean leave(ServerPlayer player) {
+        LeaveDestination destination = resolveLeaveDestination(player);
+        if (destination == null) {
+            return false;
+        }
+        BlockPos pos = destination.pos();
+        player.teleportTo(destination.level(), pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5,
                 Set.of(), player.getYRot(), player.getXRot(), true);
         return true;
     }
