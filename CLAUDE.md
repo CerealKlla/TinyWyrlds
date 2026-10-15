@@ -160,14 +160,23 @@ system" — explicit user instruction, to avoid confusion with Blueprynts' own "
   all confirmed at their predicted world coordinates).
 - **The quest-triggered Wyrld Entrance built, 2026-10-15** (design doc item 4, first half) —
   `wyrldprint.entrance.WyrldEntranceEntity` (per-player-visible, same `broadcastToPlayer` precedent
-  as Myssions' `QuestNpcEntity`), this mod's first public facade (`api.TinyWyrlds#spawnEntrance`),
-  and `WyrldReturnItem` (a real, non-consumable "escape" item auto-granted on entry). Myssions owns
-  the quest-side half via its own `bridge.TinyWyrldsEntranceBridge` — see its CLAUDE.md/context for
-  the full account, including the real "Find a Troll" sample quest. New `/tinywyrlds entrance
-  spawn/enter/debuginteract` debug commands. **Verified over RCON**: the recipe/population pipeline,
-  clean registration, and a real permanent "Troll Den" WyrldPrint + "troll_cave" WyrldRecipe
-  producing a real guardian. **Not verified**: the full quest-accept→interact→kill→escape chain
-  through a real connected player — needs a human at a client. The settlement-plot-hosted recurring
-  variant (Settlemynts/Blueprynts) is unchanged, not started.
+  as Myssions' `QuestNpcEntity`) and this mod's first public facade (`api.TinyWyrlds#spawnEntrance`).
+  Myssions owns the quest-side half via its own `bridge.TinyWyrldsEntranceBridge` — see its
+  CLAUDE.md/context for the full account, including the real "Find a Troll" sample quest. The
+  settlement-plot-hosted recurring variant (Settlemynts/Blueprynts) is unchanged, not started.
+- **Real Exit Portal, walk-in Entrance, and in-Wyrld respawn — all built 2026-10-15**, three
+  explicit same-day follow-up requests. `wyrldprint.entrance.ExitPortalBlock` is a genuine
+  `net.minecraft.world.level.block.Portal` implementation (same real mechanism vanilla's own nether
+  portal uses), gold-tinted via a registered `BlockTintSource`, auto-placed near spawn by
+  `WyrldManager#enterAt` — the real way out now, though `WyrldReturnItem` stays registered and
+  unused per explicit instruction not to delete it. The Entrance now renders the same gold
+  portal-look and triggers on walk-in proximity (`WyrldEntranceProximityTicker`) instead of
+  right-click, which forced `EntranceEnterResults`/`api.TinyWyrlds#getEnterResult` (a poll-based
+  replacement for the old interact-event hand-off to Myssions' bridge — see Myssions' own CLAUDE.md
+  for its matching change). `instance.WyrldRespawnListener` (`PlayerRespawnPositionEvent`) sends a
+  player who dies while still inside a Wyrld back to their own entry spawn point. **Verified**:
+  clean boot/registration, the block places and reports state correctly over RCON. **Not verified
+  at all**: the actual gold tint, walking through either portal, and dying/respawning — every one
+  needs a real connected player.
 
 See [context/classes/](context/classes/) for per-class reference.
