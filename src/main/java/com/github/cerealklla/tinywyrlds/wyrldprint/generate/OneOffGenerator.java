@@ -22,14 +22,24 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintType;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorPointSize;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.FloorConnectorPointBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.WallConnectorPointBlock;
+import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerBlock;
+import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerKind;
+import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldEntityEntry;
+import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldLootEntry;
+import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldRecipe;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
@@ -94,6 +104,19 @@ public final class OneOffGenerator {
      *  dungeon is generated I'd like the layout to be saved into a GeneratedDungeon folder... so we
      *  can regenerate the same layout." See {@link #regenerate} for the other half of this. */
     public static GenerateResult generate(MinecraftServer server, int minRooms, int maxRooms) {
+        return generate(server, minRooms, maxRooms, null);
+    }
+
+    /** Recipe-driven generation (design-document.md's own WyrldRecipe subsystem) -- {@code
+     *  minRooms}/{@code maxRooms} come from the recipe itself instead of being passed separately,
+     *  and every marker block placed (see {@code wyrldprint.marker.MarkerKind}) gets a real
+     *  population pass against the recipe's own loot/enemy/friendly pools -- see {@link #stamp}'s
+     *  own doc for exactly what that means per marker kind. */
+    public static GenerateResult generate(MinecraftServer server, WyrldRecipe recipe) {
+        return generate(server, recipe.minRooms(), recipe.maxRooms(), recipe);
+    }
+
+    private static GenerateResult generate(MinecraftServer server, int minRooms, int maxRooms, WyrldRecipe recipe) {
         PlanResult plan = planPlacements(minRooms, maxRooms);
         if (plan == null) {
             return null;
@@ -112,7 +135,7 @@ public final class OneOffGenerator {
                 .toList();
         GeneratedDungeonStorage.get().save(new GeneratedDungeonRecord(dungeonId, savedPlacements, sealedCells));
 
-        return stamp(server, plan.placements(), plan.entrancePlacement(), plan.doorSeals(), dungeonId);
+        return stamp(server, plan.placements(), plan.entrancePlacement(), plan.doorSeals(), dungeonId, recipe);
     }
 
     /** Re-stamps a previously saved layout (see {@link #generate}'s own doc) into a fresh Wyrld
@@ -129,6 +152,14 @@ public final class OneOffGenerator {
      *     since the original generate) -- surfaced as a clear command failure rather than silently
      *     generating an incomplete dungeon. */
     public static GenerateResult regenerate(MinecraftServer server, UUID dungeonId) {
+        return regenerate(server, dungeonId, null);
+    }
+
+    /** Same structural re-stamp as {@link #regenerate(MinecraftServer, UUID)}, but also re-runs the
+     *  population pass against {@code recipe} -- exactly the explicit spec this class's own doc
+     *  already quotes ("Mob Spawn choices, loot box locations, loot pools, mob pools all remain
+     *  randomized"): the layout repeats, but what fills each marker is freshly rolled every time. */
+    public static GenerateResult regenerate(MinecraftServer server, UUID dungeonId, WyrldRecipe recipe) {
         Optional<GeneratedDungeonRecord> saved = GeneratedDungeonStorage.get().load(dungeonId);
         if (saved.isEmpty()) {
             return null;
@@ -154,7 +185,7 @@ public final class OneOffGenerator {
 
         com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
                 "OneOffGenerator: regenerated dungeon {} ({} piece(s))", dungeonId, placements.size());
-        return stamp(server, placements, entrancePlacement, doorSeals, dungeonId);
+        return stamp(server, placements, entrancePlacement, doorSeals, dungeonId, recipe);
     }
 
     /** Debug-only (see {@code DebugCommands}'s {@code selectiontest}): runs the exact same planning
@@ -674,10 +705,20 @@ public final class OneOffGenerator {
 
     /** {@code BlockState#rotate(Rotation)} (no level/position context) is deprecated in favor of a
      *  context-aware overload -- not needed here, since every block this mod ever captures
-     *  (doors, cobblestone, wool, candles, etc.) rotates correctly with no world context. */
+     *  (doors, cobblestone, wool, candles, etc.) rotates correctly with no world context.
+     *
+     * <p>When {@code recipe} is non-null, every marker block (see {@code
+     * wyrldprint.marker.MarkerKind}) is cleared to air during stamping and handed to {@link
+     * #populate} afterward instead -- a LOOT_* marker becomes a real chest holding one item picked
+     * from that tier's pool (or stays air if the pool is empty), ENEMY/FRIENDLY become a real
+     * spawned entity picked from the matching pool (or stay air if empty), and INTERACTIVE always
+     * becomes a plain lever -- the simplest literal reading of the spec's own "buttons, switches,
+     * etc." example, not something a recipe's pools need to pick between. When {@code recipe} is
+     * null (the plain {@code generate}/{@code regenerate} overloads), marker blocks are left
+     * exactly as captured -- unchanged, pre-existing behavior. */
     @SuppressWarnings("deprecation")
     private static GenerateResult stamp(MinecraftServer server, List<Placement> placements, Placement entrancePlacement,
-                                         Map<LocalPos, BlockState> doorSeals, UUID dungeonId) {
+                                         Map<LocalPos, BlockState> doorSeals, UUID dungeonId, WyrldRecipe recipe) {
         int minF = Integer.MAX_VALUE, maxF = Integer.MIN_VALUE, minL = Integer.MAX_VALUE, maxL = Integer.MIN_VALUE;
         for (Placement placement : placements) {
             int[] box = worldBoundingBox(placement);
@@ -699,6 +740,7 @@ public final class OneOffGenerator {
         record PendingCell(BlockPos pos, BlockState state, int y) {
         }
         List<PendingCell> pending = new ArrayList<>();
+        List<MarkerSpot> markerSpots = new ArrayList<>();
         for (Placement placement : placements) {
             for (WyrldPrintCell cell : placement.record().cells()) {
                 int[] rotatedFL = rotateForwardLateral(cell.relForward(), cell.relLateral(), placement.rotation());
@@ -716,12 +758,21 @@ public final class OneOffGenerator {
                     BlockState rotated = cell.state().rotate(placement.rotation());
                     finalState = isConnectorArtifact(rotated) ? Blocks.AIR.defaultBlockState() : rotated;
                 }
-                pending.add(new PendingCell(new BlockPos(worldX, worldY, worldZ), finalState, worldY));
+                BlockPos worldPos = new BlockPos(worldX, worldY, worldZ);
+                if (recipe != null && finalState.getBlock() instanceof MarkerBlock marker) {
+                    markerSpots.add(new MarkerSpot(worldPos, marker.kind()));
+                    finalState = Blocks.AIR.defaultBlockState();
+                }
+                pending.add(new PendingCell(worldPos, finalState, worldY));
             }
         }
         pending.sort(Comparator.comparingInt(PendingCell::y));
         for (PendingCell cell : pending) {
             level.setBlock(cell.pos(), cell.state(), 3);
+        }
+
+        if (recipe != null) {
+            populate(level, markerSpots, recipe);
         }
 
         List<BlockPos> spawnPoints = new ArrayList<>();
@@ -786,5 +837,82 @@ public final class OneOffGenerator {
     /** A single cell position in the shared local (forward, lateral, Y) planning space every
      *  placement is computed in -- not yet a real {@code BlockPos}, see {@code stamp}. */
     private record LocalPos(int forward, int lateral, int y) {
+    }
+
+    /** A marker block's real world position, captured during {@code stamp} and handed to {@link
+     *  #populate} once every ordinary cell is placed. */
+    private record MarkerSpot(BlockPos pos, MarkerKind kind) {
+    }
+
+    /** The actual WyrldRecipe-driven content pass -- see {@code stamp}'s own doc for what each
+     *  {@code MarkerKind} becomes. A fresh {@code RandomSource} per call (not shared with planning)
+     *  is deliberate: which specific item/entity gets picked should vary between a {@code generate}
+     *  and a later {@code regenerate} of the same layout, per the explicit spec {@code regenerate}'s
+     *  own doc already quotes. */
+    private static void populate(ServerLevel level, List<MarkerSpot> spots, WyrldRecipe recipe) {
+        RandomSource random = RandomSource.create();
+        for (MarkerSpot spot : spots) {
+            switch (spot.kind()) {
+                case LOOT_COMMON -> placeLoot(level, spot.pos(), recipe.commonLoot(), random);
+                case LOOT_RARE -> placeLoot(level, spot.pos(), recipe.rareLoot(), random);
+                case LOOT_EPIC -> placeLoot(level, spot.pos(), recipe.epicLoot(), random);
+                case ENEMY -> spawnFromPool(level, spot.pos(), recipe.enemyPool(), random);
+                case FRIENDLY -> spawnFromPool(level, spot.pos(), recipe.friendlyPool(), random);
+                case INTERACTIVE -> level.setBlock(spot.pos(), Blocks.LEVER.defaultBlockState(), 3);
+            }
+        }
+    }
+
+    /** An empty pool leaves the marker's position as the air {@code stamp} already cleared it to --
+     *  no recipe content for that tier yet is a real, valid state, not an error. */
+    private static void placeLoot(ServerLevel level, BlockPos pos, List<WyrldLootEntry> pool, RandomSource random) {
+        if (pool.isEmpty()) {
+            return;
+        }
+        WyrldLootEntry picked = pickWeighted(pool, WyrldLootEntry::weight, random);
+        level.setBlock(pos, Blocks.CHEST.defaultBlockState(), 3);
+        if (level.getBlockEntity(pos) instanceof ChestBlockEntity chest) {
+            chest.setItem(0, picked.item().copy());
+        }
+    }
+
+    /** Same "empty pool leaves it air" rule as {@link #placeLoot} -- also skips quietly if the
+     *  stored entity type id no longer resolves to a real registered entity (renamed/removed since
+     *  the recipe was authored), same defensive lookup Myssions' own {@code QuestMobSpawnTicker}
+     *  uses for the identical {@code Identifier}-to-{@code EntityType} resolution. */
+    private static void spawnFromPool(ServerLevel level, BlockPos pos, List<WyrldEntityEntry> pool, RandomSource random) {
+        if (pool.isEmpty()) {
+            return;
+        }
+        WyrldEntityEntry picked = pickWeighted(pool, WyrldEntityEntry::weight, random);
+        EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getOptional(picked.entityTypeId()).orElse(null);
+        if (type == null) {
+            return;
+        }
+        Entity entity = type.create(level, EntitySpawnReason.MOB_SUMMONED);
+        if (entity == null) {
+            return;
+        }
+        entity.snapTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, random.nextFloat() * 360.0F, 0.0F);
+        level.addFreshEntity(entity);
+    }
+
+    private static <T> T pickWeighted(List<T> pool, java.util.function.ToIntFunction<T> weightOf, RandomSource random) {
+        int totalWeight = 0;
+        for (T entry : pool) {
+            totalWeight += Math.max(0, weightOf.applyAsInt(entry));
+        }
+        if (totalWeight <= 0) {
+            return pool.get(random.nextInt(pool.size()));
+        }
+        int roll = random.nextInt(totalWeight);
+        int cumulative = 0;
+        for (T entry : pool) {
+            cumulative += Math.max(0, weightOf.applyAsInt(entry));
+            if (roll < cumulative) {
+                return entry;
+            }
+        }
+        return pool.get(pool.size() - 1);
     }
 }

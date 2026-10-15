@@ -14,12 +14,21 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintStorage;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintType;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintValidator;
 import com.github.cerealklla.tinywyrlds.wyrldprint.generate.OneOffGenerator;
+import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.LootTier;
+import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldEntityEntry;
+import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldLootEntry;
+import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldRecipe;
+import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldRecipeStorage;
 
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 
 /**
  * DEBUG ONLY -- deliberately no permission gate, same precedent as every other sibling mod's own
@@ -82,7 +91,54 @@ public final class DebugCommands {
                 .then(Commands.literal("regenerate")
                         .then(Commands.argument("id", StringArgumentType.greedyString())
                                 .executes(ctx -> regenerateDungeon(ctx.getSource(),
-                                        StringArgumentType.getString(ctx, "id"))))));
+                                        StringArgumentType.getString(ctx, "id")))))
+                .then(Commands.literal("recipe")
+                        .then(Commands.literal("create")
+                                .then(Commands.argument("name", StringArgumentType.word())
+                                        .then(Commands.argument("minRooms", IntegerArgumentType.integer(0))
+                                                .then(Commands.argument("maxRooms", IntegerArgumentType.integer(0))
+                                                        .executes(ctx -> createRecipe(ctx.getSource(),
+                                                                StringArgumentType.getString(ctx, "name"),
+                                                                IntegerArgumentType.getInteger(ctx, "minRooms"),
+                                                                IntegerArgumentType.getInteger(ctx, "maxRooms")))))))
+                        .then(Commands.literal("addloot")
+                                .then(Commands.argument("name", StringArgumentType.word())
+                                        .then(Commands.argument("tier", StringArgumentType.word())
+                                                .then(Commands.argument("item", StringArgumentType.string())
+                                                        .then(Commands.argument("weight", IntegerArgumentType.integer(1))
+                                                                .executes(ctx -> addRecipeLoot(ctx.getSource(),
+                                                                        StringArgumentType.getString(ctx, "name"),
+                                                                        StringArgumentType.getString(ctx, "tier"),
+                                                                        StringArgumentType.getString(ctx, "item"),
+                                                                        IntegerArgumentType.getInteger(ctx, "weight"))))))))
+                        .then(Commands.literal("addenemy")
+                                .then(Commands.argument("name", StringArgumentType.word())
+                                        .then(Commands.argument("entityType", StringArgumentType.string())
+                                                .then(Commands.argument("weight", IntegerArgumentType.integer(1))
+                                                        .executes(ctx -> addRecipeEntity(ctx.getSource(),
+                                                                StringArgumentType.getString(ctx, "name"),
+                                                                StringArgumentType.getString(ctx, "entityType"),
+                                                                IntegerArgumentType.getInteger(ctx, "weight"), false))))))
+                        .then(Commands.literal("addfriendly")
+                                .then(Commands.argument("name", StringArgumentType.word())
+                                        .then(Commands.argument("entityType", StringArgumentType.string())
+                                                .then(Commands.argument("weight", IntegerArgumentType.integer(1))
+                                                        .executes(ctx -> addRecipeEntity(ctx.getSource(),
+                                                                StringArgumentType.getString(ctx, "name"),
+                                                                StringArgumentType.getString(ctx, "entityType"),
+                                                                IntegerArgumentType.getInteger(ctx, "weight"), true))))))
+                        .then(Commands.literal("setquest")
+                                .then(Commands.argument("name", StringArgumentType.word())
+                                        .then(Commands.argument("questId", StringArgumentType.greedyString())
+                                                .executes(ctx -> setRecipeQuest(ctx.getSource(),
+                                                        StringArgumentType.getString(ctx, "name"),
+                                                        StringArgumentType.getString(ctx, "questId"))))))
+                        .then(Commands.literal("list")
+                                .executes(ctx -> listRecipes(ctx.getSource()))))
+                .then(Commands.literal("generaterecipe")
+                        .then(Commands.argument("name", StringArgumentType.word())
+                                .executes(ctx -> generateFromRecipe(ctx.getSource(),
+                                        StringArgumentType.getString(ctx, "name"))))));
     }
 
     private static int saveWyrldPrint(CommandSourceStack source, String name, String typeArg) {
@@ -279,5 +335,97 @@ public final class DebugCommands {
         source.sendSuccess(() -> Component.literal("Ran " + trials + " trial(s) (" + finalEmptyPlans
                 + " empty) across " + counts.size() + " distinct piece(s) -- see server log for full per-piece counts."), false);
         return trials;
+    }
+
+    private static int createRecipe(CommandSourceStack source, String name, int minRooms, int maxRooms) {
+        WyrldRecipeStorage.get().save(WyrldRecipe.empty(name, minRooms, maxRooms));
+        source.sendSuccess(() -> Component.literal("Created WyrldRecipe '" + name + "' (" + minRooms + "-" + maxRooms + " rooms)."), false);
+        return 1;
+    }
+
+    private static int addRecipeLoot(CommandSourceStack source, String name, String tierArg, String itemArg, int weight) {
+        WyrldRecipe recipe = WyrldRecipeStorage.get().load(name).orElse(null);
+        if (recipe == null) {
+            source.sendFailure(Component.literal("No WyrldRecipe named '" + name + "'."));
+            return 0;
+        }
+        LootTier tier;
+        try {
+            tier = LootTier.valueOf(tierArg.toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            source.sendFailure(Component.literal("Tier must be 'common', 'rare', or 'epic'."));
+            return 0;
+        }
+        Item item = BuiltInRegistries.ITEM.getOptional(Identifier.parse(itemArg)).orElse(null);
+        if (item == null) {
+            source.sendFailure(Component.literal("'" + itemArg + "' isn't a real item id."));
+            return 0;
+        }
+        WyrldRecipeStorage.get().save(recipe.withLootAdded(tier, new WyrldLootEntry(new ItemStack(item), weight)));
+        source.sendSuccess(() -> Component.literal("Added " + itemArg + " (weight " + weight + ") to " + name + "'s " + tier.name() + " loot pool."), false);
+        return 1;
+    }
+
+    private static int addRecipeEntity(CommandSourceStack source, String name, String entityArg, int weight, boolean friendly) {
+        WyrldRecipe recipe = WyrldRecipeStorage.get().load(name).orElse(null);
+        if (recipe == null) {
+            source.sendFailure(Component.literal("No WyrldRecipe named '" + name + "'."));
+            return 0;
+        }
+        Identifier entityId = Identifier.parse(entityArg);
+        if (BuiltInRegistries.ENTITY_TYPE.getOptional(entityId).isEmpty()) {
+            source.sendFailure(Component.literal("'" + entityArg + "' isn't a real entity type id."));
+            return 0;
+        }
+        WyrldEntityEntry entry = new WyrldEntityEntry(entityId, weight);
+        WyrldRecipeStorage.get().save(friendly ? recipe.withFriendlyAdded(entry) : recipe.withEnemyAdded(entry));
+        source.sendSuccess(() -> Component.literal("Added " + entityArg + " (weight " + weight + ") to " + name
+                + "'s " + (friendly ? "friendly" : "enemy") + " pool."), false);
+        return 1;
+    }
+
+    private static int setRecipeQuest(CommandSourceStack source, String name, String questId) {
+        WyrldRecipe recipe = WyrldRecipeStorage.get().load(name).orElse(null);
+        if (recipe == null) {
+            source.sendFailure(Component.literal("No WyrldRecipe named '" + name + "'."));
+            return 0;
+        }
+        WyrldRecipeStorage.get().save(recipe.withQuestId(questId));
+        source.sendSuccess(() -> Component.literal("Set " + name + "'s quest tie-in to '" + questId + "'."), false);
+        return 1;
+    }
+
+    private static int listRecipes(CommandSourceStack source) {
+        var names = WyrldRecipeStorage.get().listNames();
+        source.sendSuccess(() -> Component.literal(names.isEmpty() ? "No WyrldRecipes saved yet." : String.join(", ", names)), false);
+        return names.size();
+    }
+
+    private static int generateFromRecipe(CommandSourceStack source, String name) {
+        WyrldRecipe recipe = WyrldRecipeStorage.get().load(name).orElse(null);
+        if (recipe == null) {
+            source.sendFailure(Component.literal("No WyrldRecipe named '" + name + "'."));
+            return 0;
+        }
+        OneOffGenerator.GenerateResult result = OneOffGenerator.generate(source.getServer(), recipe);
+        if (result == null) {
+            source.sendFailure(Component.literal("Not enough saved WyrldPrints to generate a dungeon -- need at least 1 room or entrance."));
+            return 0;
+        }
+        WyrldInstanceRecord instance = result.instance();
+        if (source.getEntity() instanceof ServerPlayer player) {
+            if (!result.spawnPoints().isEmpty()) {
+                WyrldManager.enterAt(player, instance.id(), result.spawnPoints().get(0));
+            } else {
+                WyrldManager.enter(player, instance.id());
+            }
+            source.sendSuccess(() -> Component.literal("Generated and entered a one-off Wyrld " + instance.id()
+                    + " from recipe '" + name + "' -- layout saved as " + result.dungeonId()
+                    + " (regenerate with /tinywyrlds regenerate " + result.dungeonId() + ")"), false);
+        } else {
+            source.sendSuccess(() -> Component.literal("Generated a one-off Wyrld " + instance.id()
+                    + " from recipe '" + name + "' (no player to enter -- run from RCON/console)."), false);
+        }
+        return 1;
     }
 }
