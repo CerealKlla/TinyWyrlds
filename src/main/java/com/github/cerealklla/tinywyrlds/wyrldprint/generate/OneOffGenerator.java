@@ -640,9 +640,23 @@ public final class OneOffGenerator {
                 BlockState finalState;
                 if (seal != null) {
                     finalState = seal;
+                    // Temporary diagnostic logging, 2026-10-14 -- a real live report of open
+                    // doorways persisting after multiple fix rounds; logs every real sealed
+                    // position/material so a reported gap's exact world coordinates can be checked
+                    // directly against what actually happened there, instead of guessing again.
+                    com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
+                            "doorSeal: sealed world ({},{},{}) with {} (piece='{}')",
+                            worldX, worldY, worldZ, seal, placement.record().name());
                 } else {
                     BlockState rotated = cell.state().rotate(placement.rotation());
-                    finalState = isConnectorArtifact(rotated) ? Blocks.AIR.defaultBlockState() : rotated;
+                    if (isConnectorArtifact(rotated)) {
+                        finalState = Blocks.AIR.defaultBlockState();
+                        com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
+                                "doorSeal: connector artifact at world ({},{},{}) turned to AIR, no seal available (piece='{}')",
+                                worldX, worldY, worldZ, placement.record().name());
+                    } else {
+                        finalState = rotated;
+                    }
                 }
                 pending.add(new PendingCell(new BlockPos(worldX, worldY, worldZ), finalState, worldY));
             }
