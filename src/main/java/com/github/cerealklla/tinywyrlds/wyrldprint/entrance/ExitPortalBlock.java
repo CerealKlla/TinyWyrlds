@@ -12,6 +12,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.InsideBlockEffectApplier;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Portal;
@@ -127,6 +128,43 @@ public class ExitPortalBlock extends Block implements Portal {
                 pos.getY() + 0.5 + (random.nextDouble() - 0.5) * 0.8,
                 pos.getZ() + 0.5 + (random.nextDouble() - 0.5) * 0.8,
                 0.0, 0.0, 0.0);
+    }
+
+    /** Breaking one placed cell breaks the whole connected "sheet" with it -- a 3x3/5x5 variant is
+     *  really one logical portal split across many identical blocks, and leaving the rest behind
+     *  after breaking one is just tedious to clean up by hand. Explicit user request: "to speed up
+     *  editing." A plain flood fill over face-adjacent cells that are also this block -- doesn't
+     *  drop anything for the swept-up neighbors (this block has no loot table at all, same as
+     *  vanilla's own nether portal), just clears them quietly. */
+    @Override
+    public BlockState playerWillDestroy(Level level, BlockPos pos, BlockState state, Player player) {
+        if (!level.isClientSide()) {
+            breakConnectedNeighbors(level, pos);
+        }
+        return super.playerWillDestroy(level, pos, state, player);
+    }
+
+    private void breakConnectedNeighbors(Level level, BlockPos origin) {
+        java.util.Set<BlockPos> visited = new java.util.HashSet<>();
+        java.util.Deque<BlockPos> queue = new java.util.ArrayDeque<>();
+        visited.add(origin.immutable());
+        queue.add(origin.immutable());
+        while (!queue.isEmpty()) {
+            BlockPos current = queue.poll();
+            for (Direction direction : Direction.values()) {
+                BlockPos neighbor = current.relative(direction);
+                if (!visited.add(neighbor)) {
+                    continue;
+                }
+                if (level.getBlockState(neighbor).is(this)) {
+                    queue.add(neighbor);
+                }
+            }
+        }
+        visited.remove(origin);
+        for (BlockPos neighbor : visited) {
+            level.removeBlock(neighbor, false);
+        }
     }
 
     @Override
