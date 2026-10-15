@@ -1,7 +1,6 @@
 package com.github.cerealklla.tinywyrlds.wyrldprint.entrance;
 
 import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
-import com.github.cerealklla.tinywyrlds.registration.ModBlocks;
 
 import com.mojang.serialization.MapCodec;
 
@@ -15,7 +14,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.InsideBlockEffectApplier;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.Portal;
 import net.minecraft.world.level.block.Rotation;
 import net.minecraft.world.level.block.state.BlockState;
@@ -26,10 +24,21 @@ import net.minecraft.world.level.portal.TeleportTransition;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * The real, concrete "Exit Structure" (explicit user spec, 2026-10-15: "Walking into the structure
- * will look and behave like a nether portal but a different color... that is the only way you'll
- * exit the Wyrld") -- a genuine {@link Portal} implementation, not a hand-rolled proximity check,
- * so it gets vanilla's own stand-and-fade teleport UX (a brief delay, then {@link
+ * A plain, obtainable, player-placed block that looks like a shimmering portal and is the real way
+ * out of a Wyrld -- explicit user correction, 2026-10-15: "I didn't tell you to change anything
+ * existing to make the portal. I will place the exit where I want it, I just want a block which
+ * looks like a shimmering portal, no frame around it." No auto-placement, no frame, no "ensure one
+ * exists near spawn" logic -- just a real block, given like any other item in this mod, placed by
+ * hand wherever the user wants it. (An earlier version of this class auto-built a gold-framed
+ * structure near every spawn point; that's been removed entirely, not just disabled.)
+ *
+ * <p>Placement itself lives entirely in {@link ExitPortalItem} (one of three size variants --
+ * 1x2/3x3/5x5, see {@link PortalSize} -- stamping a flat rectangle of this block via a custom
+ * {@code useOn}), not a vanilla {@code BlockItem}; this class has no {@code getStateForPlacement}
+ * override because nothing ever places a single cell of it that way.
+ *
+ * <p>A genuine {@link Portal} implementation, not a hand-rolled proximity check, so it gets
+ * vanilla's own stand-and-fade teleport UX (a brief delay, then {@link
  * Portal.Transition#CONFUSION}'s dizzy screen effect) for free, the same real mechanism {@code
  * NetherPortalBlock} itself uses -- confirmed by reading that class directly: {@code
  * Entity#setAsInsidePortal} tracks a {@code PortalProcessor} that calls {@link
@@ -133,30 +142,6 @@ public class ExitPortalBlock extends Block implements Portal {
             default -> {
                 return state;
             }
-        }
-    }
-
-    /** Places a small permanent "Exit Structure" (a 1-wide x 2-tall portal doorway, bordered by a
-     *  gold-block frame) a fixed offset from {@code spawnPos} -- called by {@code
-     *  WyrldManager#enterAt} every time a player lands in a Wyrld, idempotent (skips if the portal
-     *  cell is already this block, so re-entering an already-visited instance never re-places or
-     *  disturbs it). */
-    public static void ensurePlaced(ServerLevel level, BlockPos spawnPos) {
-        BlockPos base = spawnPos.offset(0, 0, -2);
-        if (level.getBlockState(base).is(ModBlocks.EXIT_PORTAL.get())) {
-            return;
-        }
-        BlockState portalState = ModBlocks.EXIT_PORTAL.get().defaultBlockState().setValue(AXIS, Direction.Axis.X);
-        for (int dy = 0; dy <= 1; dy++) {
-            level.setBlock(base.above(dy), portalState, 2);
-        }
-        for (int dy = -1; dy <= 2; dy++) {
-            level.setBlock(base.offset(-1, dy, 0), Blocks.GOLD_BLOCK.defaultBlockState(), 2);
-            level.setBlock(base.offset(1, dy, 0), Blocks.GOLD_BLOCK.defaultBlockState(), 2);
-        }
-        for (int dx = -1; dx <= 1; dx++) {
-            level.setBlock(base.offset(dx, -1, 0), Blocks.GOLD_BLOCK.defaultBlockState(), 2);
-            level.setBlock(base.offset(dx, 2, 0), Blocks.GOLD_BLOCK.defaultBlockState(), 2);
         }
     }
 }

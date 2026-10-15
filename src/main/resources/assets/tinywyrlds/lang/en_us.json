@@ -14,5 +14,9 @@
   "block.tinywyrlds.friendly_spawn": "Friendly Spawn",
   "block.tinywyrlds.interactive_component": "Interactive Component",
   "item.tinywyrlds.wyrld_return_item": "Wyrld Return Rune",
-  "entity.tinywyrlds.wyrld_entrance": "Wyrld Entrance"
+  "entity.tinywyrlds.wyrld_entrance": "Wyrld Entrance",
+  "block.tinywyrlds.exit_portal": "Exit Portal",
+  "item.tinywyrlds.exit_portal_small": "Exit Portal (1x2)",
+  "item.tinywyrlds.exit_portal_medium": "Exit Portal (3x3)",
+  "item.tinywyrlds.exit_portal_large": "Exit Portal (5x5)"
 }

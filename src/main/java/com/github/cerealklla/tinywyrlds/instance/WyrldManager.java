@@ -112,7 +112,6 @@ public final class WyrldManager {
         // see PlayerWyrldData's own doc), read back by WyrldRespawnListener.
         player.setData(ModAttachments.WYRLD_DATA, player.getData(ModAttachments.WYRLD_DATA).withWyrldSpawnPos(spawnBlockPos));
         player.teleportTo(wyrldLevel, x, y, z, Set.of(), player.getYRot(), player.getXRot(), true);
-        com.github.cerealklla.tinywyrlds.wyrldprint.entrance.ExitPortalBlock.ensurePlaced(wyrldLevel, spawnBlockPos);
 
         reviveIfStale(server, instance);
         return true;

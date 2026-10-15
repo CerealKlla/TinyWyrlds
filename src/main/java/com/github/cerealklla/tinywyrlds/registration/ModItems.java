@@ -4,6 +4,8 @@ import java.util.EnumMap;
 import java.util.Map;
 
 import com.github.cerealklla.tinywyrlds.TinyWyrldsMod;
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.ExitPortalItem;
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.PortalSize;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldReturnItem;
 import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerKind;
@@ -36,6 +38,15 @@ public final class ModItems {
             key -> new WyrldReturnItem(new Item.Properties()
                     .stacksTo(1)
                     .setId(ResourceKey.create(Registries.ITEM, key))));
+
+    public static final DeferredItem<ExitPortalItem> EXIT_PORTAL_SMALL_ITEM = registerExitPortal("exit_portal_small", PortalSize.SMALL);
+    public static final DeferredItem<ExitPortalItem> EXIT_PORTAL_MEDIUM_ITEM = registerExitPortal("exit_portal_medium", PortalSize.MEDIUM);
+    public static final DeferredItem<ExitPortalItem> EXIT_PORTAL_LARGE_ITEM = registerExitPortal("exit_portal_large", PortalSize.LARGE);
+
+    private static DeferredItem<ExitPortalItem> registerExitPortal(String id, PortalSize size) {
+        return ITEMS.register(id, key -> new ExitPortalItem(size, new Item.Properties()
+                .setId(ResourceKey.create(Registries.ITEM, key))));
+    }
 
     public static final Map<MarkerKind, DeferredItem<BlockItem>> MARKER_ITEMS = registerMarkerItems();
 

@@ -101,6 +101,9 @@ public class TinyWyrldsMod {
         event.accept(ModItems.WYRLD_WORKBENCH_ITEM.get());
         ModItems.MARKER_ITEMS.values().forEach(item -> event.accept(item.get()));
         event.accept(ModItems.WYRLD_RETURN_ITEM.get());
+        event.accept(ModItems.EXIT_PORTAL_SMALL_ITEM.get());
+        event.accept(ModItems.EXIT_PORTAL_MEDIUM_ITEM.get());
+        event.accept(ModItems.EXIT_PORTAL_LARGE_ITEM.get());
     }
 
     /** Backs {@code workbench.WyrldWorkbenchBlock}'s GUI -- each handler calls straight into the

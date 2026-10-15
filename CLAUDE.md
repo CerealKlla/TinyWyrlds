@@ -167,16 +167,23 @@ system" — explicit user instruction, to avoid confusion with Blueprynts' own "
 - **Real Exit Portal, walk-in Entrance, and in-Wyrld respawn — all built 2026-10-15**, three
   explicit same-day follow-up requests. `wyrldprint.entrance.ExitPortalBlock` is a genuine
   `net.minecraft.world.level.block.Portal` implementation (same real mechanism vanilla's own nether
-  portal uses), gold-tinted via a registered `BlockTintSource`, auto-placed near spawn by
-  `WyrldManager#enterAt` — the real way out now, though `WyrldReturnItem` stays registered and
-  unused per explicit instruction not to delete it. The Entrance now renders the same gold
+  portal uses), gold-tinted via a registered `BlockTintSource` — the real way out now, though
+  `WyrldReturnItem` stays registered and unused per explicit instruction not to delete it. **Plain
+  block, player-placed only**: an initial pass auto-placed a gold-framed structure near every spawn
+  point, which the user explicitly rejected ("I will place the exit where I want it, I just want a
+  block which looks like a shimmering portal, no frame around it") — that auto-placement code
+  (`ensurePlaced`) is deleted outright. Placement instead goes through three **`ExitPortalItem`**
+  size variants (1x2/3x3/5x5, `wyrldprint.entrance.PortalSize`, mirroring this mod's own
+  `ConnectorPointSize` convention), each a plain `Item` with a custom `useOn` that stamps a flat
+  rectangle of the block oriented to the player's facing. The Entrance now renders the same gold
   portal-look and triggers on walk-in proximity (`WyrldEntranceProximityTicker`) instead of
   right-click, which forced `EntranceEnterResults`/`api.TinyWyrlds#getEnterResult` (a poll-based
   replacement for the old interact-event hand-off to Myssions' bridge — see Myssions' own CLAUDE.md
   for its matching change). `instance.WyrldRespawnListener` (`PlayerRespawnPositionEvent`) sends a
   player who dies while still inside a Wyrld back to their own entry spawn point. **Verified**:
-  clean boot/registration, the block places and reports state correctly over RCON. **Not verified
-  at all**: the actual gold tint, walking through either portal, and dying/respawning — every one
+  clean `./gradlew build`, a clean `runServer` boot (all dimensions load/save with no exceptions),
+  and the block places and reports state correctly over RCON. **Not verified at all**: the actual
+  gold tint, placing/walking through any of the 3 item variants, and dying/respawning — every one
   needs a real connected player.
 
 See [context/classes/](context/classes/) for per-class reference.
