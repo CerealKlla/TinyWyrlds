@@ -19,6 +19,7 @@ public class WyrldWorkbenchSaveScreen extends Screen {
 
     private final Screen parent;
     private final BlockPos workbenchPos;
+    private final String defaultName;
     private EditBox nameBox;
     private int typeIndex = 0;
     private Button typeButton;
@@ -27,6 +28,7 @@ public class WyrldWorkbenchSaveScreen extends Screen {
         super(Component.literal("Save WyrldPrint"));
         this.parent = parent;
         this.workbenchPos = parent.data().workbenchPos();
+        this.defaultName = parent.data().loadedName();
     }
 
     @Override
@@ -35,6 +37,13 @@ public class WyrldWorkbenchSaveScreen extends Screen {
         int y = height / 2 - 40;
 
         nameBox = addRenderableWidget(new EditBox(font, x, y, 200, 20, Component.literal("Name")));
+        // Defaults to whatever's currently loaded in the crafting zone, if anything -- explicit
+        // user spec, 2026-10-15: "if we load one the UI should default to the name of the file we
+        // loaded. If we clear, that default can also be cleared." Still a plain editable field, not
+        // read-only -- this is just a starting point, not a lock.
+        if (!defaultName.isEmpty()) {
+            nameBox.setValue(defaultName);
+        }
         y += 28;
 
         typeButton = addRenderableWidget(Button.builder(Component.literal("Type: " + TYPES[typeIndex]), b -> cycleType())

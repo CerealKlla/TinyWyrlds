@@ -2,6 +2,7 @@ package com.github.cerealklla.tinywyrlds.wyrldprint.workbench;
 
 import java.util.List;
 
+import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintPlacement;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintRecord;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintStorage;
 
@@ -71,6 +72,7 @@ public class WyrldWorkbenchBlock extends HorizontalDirectionalBlock {
         List<WyrldPrintRecord> saved = WyrldPrintStorage.get().listAll();
         List<String> names = saved.stream().map(WyrldPrintRecord::name).toList();
         List<String> types = saved.stream().map(r -> r.type().name()).toList();
-        PacketDistributor.sendToPlayer(player, new OpenWyrldWorkbenchScreenPayload(pos, names, types));
+        PacketDistributor.sendToPlayer(player, new OpenWyrldWorkbenchScreenPayload(pos, names, types,
+                WyrldPrintPlacement.loadedName().orElse("")));
     }
 }

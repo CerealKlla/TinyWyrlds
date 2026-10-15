@@ -19,11 +19,16 @@ import net.minecraft.resources.Identifier;
  * render its Load list -- same shape/precedent as Blueprynts' own {@code
  * OpenConstructionSiteScreenPayload}. Resent after a Save adds a new entry so an already-open
  * screen's Load list stays current.
+ *
+ * <p>{@code loadedName} is the crafting zone's current {@code WyrldPrintPlacement#loadedName()},
+ * empty string standing in for "none" (no nullable-string codec needed) -- the Save screen uses it
+ * to default its name field, per the 2026-10-15 request described there.
  */
 public record OpenWyrldWorkbenchScreenPayload(
         BlockPos workbenchPos,
         List<String> savedNames,
-        List<String> savedTypes)
+        List<String> savedTypes,
+        String loadedName)
         implements CustomPacketPayload {
 
     public static final Type<OpenWyrldWorkbenchScreenPayload> TYPE =
@@ -33,6 +38,7 @@ public record OpenWyrldWorkbenchScreenPayload(
             ByteBufCodecs.fromCodec(BlockPos.CODEC), OpenWyrldWorkbenchScreenPayload::workbenchPos,
             ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::savedNames,
             ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::savedTypes,
+            ByteBufCodecs.STRING_UTF8, OpenWyrldWorkbenchScreenPayload::loadedName,
             OpenWyrldWorkbenchScreenPayload::new);
 
     @Override

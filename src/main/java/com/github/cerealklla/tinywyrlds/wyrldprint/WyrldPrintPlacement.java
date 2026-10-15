@@ -23,7 +23,23 @@ public final class WyrldPrintPlacement {
     private WyrldPrintPlacement() {
     }
 
+    /** The name of whatever saved WyrldPrint the crafting zone's current content corresponds to, if
+     *  any -- shown as the Save screen's default name so re-saving an edited print doesn't require
+     *  retyping it. Explicit user spec, 2026-10-15: "if we load one the UI should default to the
+     *  name of the file we loaded. If we clear, that default can also be cleared." Global, not
+     *  per-player -- the crafting zone itself is one shared space, same as everything else here. */
+    private static String loadedName;
+
+    public static java.util.Optional<String> loadedName() {
+        return java.util.Optional.ofNullable(loadedName);
+    }
+
+    public static void setLoadedName(String name) {
+        loadedName = name;
+    }
+
     public static void clearCraftingZone(ServerLevel level) {
+        loadedName = null;
         int minY = WyrldManager.BASELINE_Y - WyrldPrintArea.CAPTURE_BELOW_BASELINE;
         int maxY = WyrldManager.BASELINE_Y + WyrldPrintArea.CAPTURE_ABOVE_BASELINE;
         for (int x = WyrldPrintArea.CRAFT_MIN_X; x < WyrldPrintArea.CRAFT_MAX_X; x++) {
@@ -40,6 +56,7 @@ public final class WyrldPrintPlacement {
 
     public static void loadIntoCraftingZone(ServerLevel level, WyrldPrintRecord record) {
         clearCraftingZone(level);
+        loadedName = record.name();
         // Anchored so the content's own far (highest-relForward) edge lands flush against the
         // boundary, i.e. right next to the cobblestone staging strip, instead of clear across the
         // void at the crafting zone's far west edge.
