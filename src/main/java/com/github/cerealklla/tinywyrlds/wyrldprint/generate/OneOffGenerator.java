@@ -283,8 +283,20 @@ public final class OneOffGenerator {
                 BlockState rotated = material.rotate(frontier.ownerPlacement().rotation());
                 for (LocalPos cell : wallFootprintCells(frontier)) {
                     BlockState existing = realBlocks.get(cell);
-                    if (existing != null && !existing.isAir()) {
-                        continue; // already real content (the player built over the suggestion) -- leave it alone.
+                    // Real, live-confirmed bug: the door's own 2 cells always fail this check,
+                    // since their "existing" content is the connector door/trapdoor block itself --
+                    // a genuinely real, non-air block, captured as-is (only the glass fill gets
+                    // cleared to air at capture time, never the door). That's not "the player built
+                    // something here, leave it alone" the way an overridden buffer cell is -- it's
+                    // the exact artifact stamp()'s own isConnectorArtifact rule is about to strip to
+                    // air regardless, which is *why* it needs a seal in the first place. Confirmed
+                    // directly against the log: a MEDIUM/LARGE connector's door cells logged "no
+                    // seal available" while its own buffer cells (genuinely air, correctly skipped
+                    // past this check) got sealed fine in the same run. Only a cell whose real
+                    // content is something *other* than a connector artifact is genuinely
+                    // player-built-over and worth leaving alone.
+                    if (existing != null && !existing.isAir() && !isConnectorArtifact(existing)) {
+                        continue;
                     }
                     doorSeals.put(cell, rotated);
                 }
