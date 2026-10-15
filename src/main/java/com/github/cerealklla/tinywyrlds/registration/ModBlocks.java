@@ -5,6 +5,7 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.SpawnLocationBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorPointSize;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.FloorConnectorPointBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.WallConnectorPointBlock;
+import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.WyrldWorkbenchBlock;
 
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
@@ -39,6 +40,12 @@ public final class ModBlocks {
                     .mapColor(MapColor.GOLD)
                     .strength(3.0F)
                     .pushReaction(PushReaction.DESTROY)
+                    .setId(ResourceKey.create(Registries.BLOCK, key))));
+
+    public static final DeferredBlock<WyrldWorkbenchBlock> WYRLD_WORKBENCH = BLOCKS.register("wyrld_workbench",
+            key -> new WyrldWorkbenchBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.WOOD)
+                    .strength(2.5F)
                     .setId(ResourceKey.create(Registries.BLOCK, key))));
 
     private static DeferredBlock<WallConnectorPointBlock> registerWall(String id, ConnectorPointSize size) {

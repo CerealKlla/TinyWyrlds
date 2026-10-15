@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "tinywyrlds:block/wyrld_workbench" },
+    "facing=south": { "model": "tinywyrlds:block/wyrld_workbench", "y": 180 },
+    "facing=west": { "model": "tinywyrlds:block/wyrld_workbench", "y": 270 },
+    "facing=east": { "model": "tinywyrlds:block/wyrld_workbench", "y": 90 }
+  }
+}

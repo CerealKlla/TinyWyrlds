@@ -6,15 +6,18 @@ import com.github.cerealklla.tinywyrlds.TinyWyrldsMod;
 import com.github.cerealklla.tinywyrlds.instance.PlayerWyrldData;
 import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
 import com.github.cerealklla.tinywyrlds.registration.ModAttachments;
+import com.github.cerealklla.tinywyrlds.registration.ModBlocks;
 import com.github.cerealklla.tinywyrlds.space.FreeRect;
 import com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 
 /**
  * The one permanent, fixed-location authoring zone for building dungeon components ("WyrldPrints")
@@ -73,6 +76,13 @@ public final class WyrldPrintArea {
     public static final int CAPTURE_BELOW_BASELINE = 32;
     public static final int CAPTURE_ABOVE_BASELINE = 160;
 
+    /** The in-world "right-click to bring up a menu" fixture (design-document.md's own long-deferred
+     *  spec item, built 2026-10-15) -- a single permanent {@code workbench.WyrldWorkbenchBlock} on
+     *  the staging strip, just off the player's own arrival point, facing {@code WEST} (toward the
+     *  void crafting zone it's a menu for). */
+    public static final BlockPos WORKBENCH_POS = new BlockPos(
+            (COBBLESTONE_MIN_X + COBBLESTONE_MAX_X) / 2, WyrldManager.BASELINE_Y, (MIN_Z + MAX_Z) / 2 + 2);
+
     private static final int FLOOR_Y = WyrldManager.BASELINE_Y - 1;
     // A first build (2026-10-13) mistakenly stood the boundary marker up as a 12-tall wall --
     // corrected 2026-10-14 ("the obsidian was meant to be just 1 block on the ground") to a
@@ -130,6 +140,11 @@ public final class WyrldPrintArea {
                     level.setBlock(pos, Blocks.AIR.defaultBlockState(), 2);
                 }
             }
+        }
+
+        if (!level.getBlockState(WORKBENCH_POS).is(ModBlocks.WYRLD_WORKBENCH.get())) {
+            level.setBlock(WORKBENCH_POS, ModBlocks.WYRLD_WORKBENCH.get().defaultBlockState()
+                    .setValue(HorizontalDirectionalBlock.FACING, Direction.WEST), 2);
         }
 
         if (!floorAlreadyBuilt) {

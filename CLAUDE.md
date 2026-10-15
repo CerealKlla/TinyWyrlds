@@ -128,4 +128,26 @@ system" — explicit user instruction, to avoid confusion with Blueprynts' own "
   construction. New `/tinywyrlds regenerate <id>` command. `./gradlew build`/`test` green; **not
   yet live-tested**.
 
+- **The in-world "right-click to bring up a menu" fixture built, 2026-10-15** — the long-deferred
+  spec item picked up as the first item in the project's own standing pending-work list. A single
+  permanent `workbench.WyrldWorkbenchBlock` (visually a crafting-table lookalike, same v1 precedent
+  Blueprynts' `ConstructionSiteBlock` set) is now placed by `WyrldPrintArea#ensureBuilt` on the
+  staging strip itself, right-clickable into `WyrldWorkbenchScreen` — Save/Load/Clear/Validate
+  All/Generate One-off/Regenerate, a real GUI front end over the exact same lower-level APIs
+  `debug.DebugCommands` already called (so the two never diverge in behavior), purely
+  payload-driven (no container menu), same convention as Blueprynts' `ConstructionSiteScreen`.
+  Carries no block-entity state of its own — every saved-WyrldPrint list is read fresh from
+  `WyrldPrintStorage` on each open. A real bug caught during this build: the `SaveWyrldPrintPayload`
+  record's `type` component clashed with `CustomPacketPayload#type()`'s own accessor (a record
+  component can't share a name with an interface method of a different return type) — renamed to
+  `printType`. `./gradlew build`/`test` green; a real `runServer` boot-smoke-test from Cartographyr
+  confirmed the block/payload registration and `WyrldPrintArea#ensureBuilt`'s new placement step
+  both run with no exception (the crafting-zone floor/obsidian/workbench all built cleanly before an
+  unrelated, pre-existing issue — Production's own already-running server holding the shared
+  voicechat UDP port — tore the disposable dev-boot session down; confirmed via
+  `Get-NetUDPEndpoint`/`Get-CimInstance Win32_Process` that this is Production's own process, not
+  anything this change introduced). **Live client confirmation (actually right-clicking it and
+  using each button) still pending** — same standing gap as the ENTRANCE/Spawn Location marker and
+  `/tinywyrlds regenerate` above.
+
 See [context/classes/](context/classes/) for per-class reference.
