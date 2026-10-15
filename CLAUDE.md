@@ -150,4 +150,24 @@ system" — explicit user instruction, to avoid confusion with Blueprynts' own "
   using each button) still pending** — same standing gap as the ENTRANCE/Spawn Location marker and
   `/tinywyrlds regenerate` above.
 
+- **WyrldRecipe built, 2026-10-15** — `wyrldprint.recipe.WyrldRecipe`/`WyrldRecipeStorage`: room-count
+  range, weighted loot-tier pools, weighted enemy/friendly entity pools, an unconsumed `questId`
+  placeholder. `generate.OneOffGenerator`'s recipe-driven overloads run a real population pass over
+  every marker block: LOOT_* becomes a chest with a weighted-random item, ENEMY/FRIENDLY spawn a
+  weighted-random entity, INTERACTIVE becomes a lever. New `/tinywyrlds recipe
+  create/addloot/addenemy/addfriendly/setquest/list` and `/tinywyrlds generaterecipe <name>` debug
+  commands. **Verified end-to-end over RCON** (real chest contents, spawned entities, and the lever
+  all confirmed at their predicted world coordinates).
+- **The quest-triggered Wyrld Entrance built, 2026-10-15** (design doc item 4, first half) —
+  `wyrldprint.entrance.WyrldEntranceEntity` (per-player-visible, same `broadcastToPlayer` precedent
+  as Myssions' `QuestNpcEntity`), this mod's first public facade (`api.TinyWyrlds#spawnEntrance`),
+  and `WyrldReturnItem` (a real, non-consumable "escape" item auto-granted on entry). Myssions owns
+  the quest-side half via its own `bridge.TinyWyrldsEntranceBridge` — see its CLAUDE.md/context for
+  the full account, including the real "Find a Troll" sample quest. New `/tinywyrlds entrance
+  spawn/enter/debuginteract` debug commands. **Verified over RCON**: the recipe/population pipeline,
+  clean registration, and a real permanent "Troll Den" WyrldPrint + "troll_cave" WyrldRecipe
+  producing a real guardian. **Not verified**: the full quest-accept→interact→kill→escape chain
+  through a real connected player — needs a human at a client. The settlement-plot-hosted recurring
+  variant (Settlemynts/Blueprynts) is unchanged, not started.
+
 See [context/classes/](context/classes/) for per-class reference.
