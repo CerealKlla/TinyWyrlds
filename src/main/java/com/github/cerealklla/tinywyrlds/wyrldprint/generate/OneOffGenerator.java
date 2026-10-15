@@ -486,7 +486,11 @@ public final class OneOffGenerator {
      *  Wyrld's own generic inner-rect center). {@code dungeonId} is {@code null} when this result
      *  came from {@link #regenerate} -- re-saving an already-saved layout under a new id would just
      *  accumulate duplicate files for no reason. */
-    public record GenerateResult(WyrldInstanceRecord instance, List<BlockPos> spawnPoints, UUID dungeonId) {
+    /** @param spawnedEnemyIds every entity UUID the recipe-driven population pass spawned from an
+     *  ENEMY pool (never FRIENDLY) -- empty when {@code recipe} was null, see {@link #stamp}'s own
+     *  doc. Lets an external caller (e.g. Myssions' entrance-quest bridge) track "defeat this
+     *  specific dungeon's guardian" without this mod needing to know what a quest even is. */
+    public record GenerateResult(WyrldInstanceRecord instance, List<BlockPos> spawnPoints, UUID dungeonId, List<UUID> spawnedEnemyIds) {
     }
 
     /**
@@ -731,7 +735,7 @@ public final class OneOffGenerator {
         WyrldInstanceRecord instance = WyrldManager.createWyrld(server, (maxF - minF) + 2 * MARGIN, (maxL - minL) + 2 * MARGIN);
         ServerLevel level = server.getLevel(WyrldSpaceDimension.KEY);
         if (level == null) {
-            return new GenerateResult(instance, List.of(), dungeonId);
+            return new GenerateResult(instance, List.of(), dungeonId, List.of());
         }
         FreeRect inner = instance.innerRect();
         int worldForwardOffset = inner.x1() + MARGIN - minF;
@@ -771,9 +775,7 @@ public final class OneOffGenerator {
             level.setBlock(cell.pos(), cell.state(), 3);
         }
 
-        if (recipe != null) {
-            populate(level, markerSpots, recipe);
-        }
+        List<UUID> spawnedEnemyIds = recipe != null ? populate(level, markerSpots, recipe) : List.of();
 
         List<BlockPos> spawnPoints = new ArrayList<>();
         if (entrancePlacement != null) {
@@ -785,7 +787,7 @@ public final class OneOffGenerator {
                 spawnPoints.add(new BlockPos(worldX, worldY, worldZ));
             }
         }
-        return new GenerateResult(instance, spawnPoints, dungeonId);
+        return new GenerateResult(instance, spawnPoints, dungeonId, spawnedEnemyIds);
     }
 
     /** A real generated dungeon never shows the raw Connector Point door/trapdoor or its glass
@@ -848,19 +850,22 @@ public final class OneOffGenerator {
      *  {@code MarkerKind} becomes. A fresh {@code RandomSource} per call (not shared with planning)
      *  is deliberate: which specific item/entity gets picked should vary between a {@code generate}
      *  and a later {@code regenerate} of the same layout, per the explicit spec {@code regenerate}'s
-     *  own doc already quotes. */
-    private static void populate(ServerLevel level, List<MarkerSpot> spots, WyrldRecipe recipe) {
+     *  own doc already quotes. @return every entity UUID spawned from an ENEMY pool specifically
+     *  (never FRIENDLY) -- see {@code GenerateResult#spawnedEnemyIds}' own doc for why. */
+    private static List<UUID> populate(ServerLevel level, List<MarkerSpot> spots, WyrldRecipe recipe) {
         RandomSource random = RandomSource.create();
+        List<UUID> spawnedEnemyIds = new ArrayList<>();
         for (MarkerSpot spot : spots) {
             switch (spot.kind()) {
                 case LOOT_COMMON -> placeLoot(level, spot.pos(), recipe.commonLoot(), random);
                 case LOOT_RARE -> placeLoot(level, spot.pos(), recipe.rareLoot(), random);
                 case LOOT_EPIC -> placeLoot(level, spot.pos(), recipe.epicLoot(), random);
-                case ENEMY -> spawnFromPool(level, spot.pos(), recipe.enemyPool(), random);
+                case ENEMY -> spawnFromPool(level, spot.pos(), recipe.enemyPool(), random).ifPresent(spawnedEnemyIds::add);
                 case FRIENDLY -> spawnFromPool(level, spot.pos(), recipe.friendlyPool(), random);
                 case INTERACTIVE -> level.setBlock(spot.pos(), Blocks.LEVER.defaultBlockState(), 3);
             }
         }
+        return spawnedEnemyIds;
     }
 
     /** An empty pool leaves the marker's position as the air {@code stamp} already cleared it to --
@@ -880,21 +885,22 @@ public final class OneOffGenerator {
      *  stored entity type id no longer resolves to a real registered entity (renamed/removed since
      *  the recipe was authored), same defensive lookup Myssions' own {@code QuestMobSpawnTicker}
      *  uses for the identical {@code Identifier}-to-{@code EntityType} resolution. */
-    private static void spawnFromPool(ServerLevel level, BlockPos pos, List<WyrldEntityEntry> pool, RandomSource random) {
+    private static Optional<UUID> spawnFromPool(ServerLevel level, BlockPos pos, List<WyrldEntityEntry> pool, RandomSource random) {
         if (pool.isEmpty()) {
-            return;
+            return Optional.empty();
         }
         WyrldEntityEntry picked = pickWeighted(pool, WyrldEntityEntry::weight, random);
         EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getOptional(picked.entityTypeId()).orElse(null);
         if (type == null) {
-            return;
+            return Optional.empty();
         }
         Entity entity = type.create(level, EntitySpawnReason.MOB_SUMMONED);
         if (entity == null) {
-            return;
+            return Optional.empty();
         }
         entity.snapTo(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, random.nextFloat() * 360.0F, 0.0F);
         level.addFreshEntity(entity);
+        return Optional.of(entity.getUUID());
     }
 
     private static <T> T pickWeighted(List<T> pool, java.util.function.ToIntFunction<T> weightOf, RandomSource random) {

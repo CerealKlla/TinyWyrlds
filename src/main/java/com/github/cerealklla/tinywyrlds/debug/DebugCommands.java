@@ -13,6 +13,7 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintRecord;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintStorage;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintType;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintValidator;
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceEntity;
 import com.github.cerealklla.tinywyrlds.wyrldprint.generate.OneOffGenerator;
 import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.LootTier;
 import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldEntityEntry;
@@ -29,6 +30,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.AABB;
 
 /**
  * DEBUG ONLY -- deliberately no permission gate, same precedent as every other sibling mod's own
@@ -138,7 +140,16 @@ public final class DebugCommands {
                 .then(Commands.literal("generaterecipe")
                         .then(Commands.argument("name", StringArgumentType.word())
                                 .executes(ctx -> generateFromRecipe(ctx.getSource(),
-                                        StringArgumentType.getString(ctx, "name"))))));
+                                        StringArgumentType.getString(ctx, "name")))))
+                .then(Commands.literal("entrance")
+                        .then(Commands.literal("spawn")
+                                .then(Commands.argument("recipeName", StringArgumentType.word())
+                                        .executes(ctx -> spawnEntranceHere(ctx.getSource(),
+                                                StringArgumentType.getString(ctx, "recipeName")))))
+                        .then(Commands.literal("enter")
+                                .executes(ctx -> enterNearestEntrance(ctx.getSource())))
+                        .then(Commands.literal("debuginteract")
+                                .executes(ctx -> debugInteractNearestEntrance(ctx.getSource())))));
     }
 
     private static int saveWyrldPrint(CommandSourceStack source, String name, String typeArg) {
@@ -426,6 +437,74 @@ public final class DebugCommands {
             source.sendSuccess(() -> Component.literal("Generated a one-off Wyrld " + instance.id()
                     + " from recipe '" + name + "' (no player to enter -- run from RCON/console)."), false);
         }
+        return 1;
+    }
+
+    /** Debug equivalent of {@code api.TinyWyrlds#spawnEntrance} -- spawns one at the command
+     *  source's own position (RCON/console use {@code execute at ... run tinywyrlds entrance
+     *  spawn ...} to choose a position), owned by the invoking player (or unowned/visible-to-all
+     *  if run from console, since there's no player to own it). */
+    private static int spawnEntranceHere(CommandSourceStack source, String recipeName) {
+        if (!(source.getLevel() instanceof ServerLevel level)) {
+            source.sendFailure(Component.literal("No level to spawn into."));
+            return 0;
+        }
+        java.util.UUID ownerId = source.getEntity() instanceof ServerPlayer player ? player.getUUID() : null;
+        java.util.UUID entranceId = java.util.UUID.randomUUID();
+        net.minecraft.world.phys.Vec3 pos = source.getPosition();
+        WyrldEntranceEntity.create(level, net.minecraft.core.BlockPos.containing(pos.x(), pos.y(), pos.z()), entranceId, recipeName, ownerId);
+        source.sendSuccess(() -> Component.literal("Spawned a Wyrld Entrance (id " + entranceId + ") for recipe '" + recipeName + "'."), false);
+        return 1;
+    }
+
+    /** Debug equivalent of right-clicking a {@code WyrldEntranceEntity} -- calls {@code #enter}
+     *  directly on the nearest one this player can see, since RCON/console has no way to simulate a
+     *  real client right-click to exercise {@code WyrldEntranceInteractListener} itself. */
+    private static int enterNearestEntrance(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player) || !(source.getLevel() instanceof ServerLevel level)) {
+            source.sendFailure(Component.literal("Only a player can run this."));
+            return 0;
+        }
+        double radius = 64.0;
+        AABB box = new AABB(player.getX() - radius, level.getMinY(), player.getZ() - radius,
+                player.getX() + radius, level.getMaxY(), player.getZ() + radius);
+        WyrldEntranceEntity nearest = level.getEntitiesOfClass(WyrldEntranceEntity.class, box, e -> e.broadcastToPlayer(player))
+                .stream().min((a, b) -> Double.compare(a.distanceToSqr(player), b.distanceToSqr(player))).orElse(null);
+        if (nearest == null) {
+            source.sendFailure(Component.literal("No visible Wyrld Entrance within " + (int) radius + " blocks."));
+            return 0;
+        }
+        boolean entered = nearest.enter(player);
+        source.sendSuccess(() -> Component.literal(entered ? "Entered." : "Failed to enter -- see above."), false);
+        return entered ? 1 : 0;
+    }
+
+    /** Posts a real {@code PlayerInteractEvent.EntityInteract} for the nearest visible Entrance --
+     *  not a shortcut call into {@code #enter} directly (see {@link #enterNearestEntrance}, which
+     *  does that) -- this genuinely exercises the same event pipeline a real client right-click
+     *  would, including any lower-priority cross-mod listener (e.g. Myssions' own entrance-quest
+     *  bridge) registered for the same event. Added specifically because RCON/console has no way to
+     *  simulate a real client interaction otherwise, and that pipeline is exactly what needed
+     *  verifying for this feature. */
+    private static int debugInteractNearestEntrance(CommandSourceStack source) {
+        if (!(source.getEntity() instanceof ServerPlayer player) || !(source.getLevel() instanceof ServerLevel level)) {
+            source.sendFailure(Component.literal("Only a player can run this."));
+            return 0;
+        }
+        double radius = 64.0;
+        AABB box = new AABB(player.getX() - radius, level.getMinY(), player.getZ() - radius,
+                player.getX() + radius, level.getMaxY(), player.getZ() + radius);
+        WyrldEntranceEntity nearest = level.getEntitiesOfClass(WyrldEntranceEntity.class, box, e -> e.broadcastToPlayer(player))
+                .stream().min((a, b) -> Double.compare(a.distanceToSqr(player), b.distanceToSqr(player))).orElse(null);
+        if (nearest == null) {
+            source.sendFailure(Component.literal("No visible Wyrld Entrance within " + (int) radius + " blocks."));
+            return 0;
+        }
+        net.neoforged.neoforge.event.entity.player.PlayerInteractEvent.EntityInteract event =
+                new net.neoforged.neoforge.event.entity.player.PlayerInteractEvent.EntityInteract(
+                        player, net.minecraft.world.InteractionHand.MAIN_HAND, nearest);
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(event);
+        source.sendSuccess(() -> Component.literal("Posted a real EntityInteract event at the nearest Entrance."), false);
         return 1;
     }
 }

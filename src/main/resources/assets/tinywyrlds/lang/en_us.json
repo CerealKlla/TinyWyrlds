@@ -12,5 +12,7 @@
   "block.tinywyrlds.loot_spawn_epic": "Loot Spawn (Epic)",
   "block.tinywyrlds.enemy_spawn": "Enemy Spawn",
   "block.tinywyrlds.friendly_spawn": "Friendly Spawn",
-  "block.tinywyrlds.interactive_component": "Interactive Component"
+  "block.tinywyrlds.interactive_component": "Interactive Component",
+  "item.tinywyrlds.wyrld_return_item": "Wyrld Return Rune",
+  "entity.tinywyrlds.wyrld_entrance": "Wyrld Entrance"
 }

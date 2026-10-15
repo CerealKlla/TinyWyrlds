@@ -8,12 +8,14 @@ import com.github.cerealklla.tinywyrlds.instance.WyrldLifecycleTicker;
 import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
 import com.github.cerealklla.tinywyrlds.registration.ModAttachments;
 import com.github.cerealklla.tinywyrlds.registration.ModBlocks;
+import com.github.cerealklla.tinywyrlds.registration.ModEntities;
 import com.github.cerealklla.tinywyrlds.registration.ModItems;
 import com.github.cerealklla.tinywyrlds.space.AdvancementBlocker;
 import com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension;
 import com.github.cerealklla.tinywyrlds.voxel.VoxelLockListener;
 import com.github.cerealklla.tinywyrlds.wyrldprint.CreativeZoneTicker;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintAreaSetupListener;
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceInteractListener;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintCapture;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintPlacement;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintRecord;
@@ -59,6 +61,7 @@ public class TinyWyrldsMod {
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
         ModBlocks.BLOCKS.register(modEventBus);
         ModItems.ITEMS.register(modEventBus);
+        ModEntities.ENTITY_TYPES.register(modEventBus);
 
         modEventBus.addListener(this::commonSetup);
         modEventBus.addListener(this::addCreativeTabItems);
@@ -69,6 +72,7 @@ public class TinyWyrldsMod {
         NeoForge.EVENT_BUS.register(new WyrldPrintAreaSetupListener());
         NeoForge.EVENT_BUS.register(new CreativeZoneTicker());
         NeoForge.EVENT_BUS.register(new AdvancementBlocker());
+        NeoForge.EVENT_BUS.register(new WyrldEntranceInteractListener());
         NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) -> DebugCommands.register(event.getDispatcher()));
     }
 
@@ -94,6 +98,7 @@ public class TinyWyrldsMod {
         event.accept(ModItems.SPAWN_LOCATION_ITEM.get());
         event.accept(ModItems.WYRLD_WORKBENCH_ITEM.get());
         ModItems.MARKER_ITEMS.values().forEach(item -> event.accept(item.get()));
+        event.accept(ModItems.WYRLD_RETURN_ITEM.get());
     }
 
     /** Backs {@code workbench.WyrldWorkbenchBlock}'s GUI -- each handler calls straight into the
