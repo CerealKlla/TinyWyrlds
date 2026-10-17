@@ -73,6 +73,14 @@ neoForge {
 }
 
 dependencies {
+
+    // Nuclyus is a required foundation dependency (see neoforge.mods.toml) -- hard-imported by
+    // every mod in the suite for shared base classes/contracts, starting with the cross-mod menu-
+    // contribution system. Sibling repo, not published anywhere -- run ../Nuclyus's own build (or
+    // the suite's sync-mods.sh) at least once before building this project.
+    compileOnly files("../Nuclyus/build/libs/nuclyus-${nuclyus_version}.jar")
+    testCompileOnly files("../Nuclyus/build/libs/nuclyus-${nuclyus_version}.jar")
+    testRuntimeOnly files("../Nuclyus/build/libs/nuclyus-${nuclyus_version}.jar")
     // Optional soft dependencies (see neoforge.mods.toml) -- each actual call site is guarded
     // behind ModList.get().isLoaded(...) at runtime, same isolation pattern every sibling-mod
     // dependency in this suite uses. compileOnly only, so these classes never get bundled into this
