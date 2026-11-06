@@ -135,6 +135,12 @@ public final class DebugCommands {
                                                 .executes(ctx -> setRecipeQuest(ctx.getSource(),
                                                         StringArgumentType.getString(ctx, "name"),
                                                         StringArgumentType.getString(ctx, "questId"))))))
+                        .then(Commands.literal("setentrance")
+                                .then(Commands.argument("name", StringArgumentType.word())
+                                        .then(Commands.argument("entranceName", StringArgumentType.greedyString())
+                                                .executes(ctx -> setRecipeEntrance(ctx.getSource(),
+                                                        StringArgumentType.getString(ctx, "name"),
+                                                        StringArgumentType.getString(ctx, "entranceName"))))))
                         .then(Commands.literal("list")
                                 .executes(ctx -> listRecipes(ctx.getSource()))))
                 .then(Commands.literal("generaterecipe")
@@ -401,6 +407,18 @@ public final class DebugCommands {
         }
         WyrldRecipeStorage.get().save(recipe.withQuestId(questId));
         source.sendSuccess(() -> Component.literal("Set " + name + "'s quest tie-in to '" + questId + "'."), false);
+        return 1;
+    }
+
+    /** Pins {@code name}'s recipe to generate only from the saved ENTRANCE WyrldPrint called {@code entranceName} -- see {@code generate.OneOffGenerator#planPlacements}'s own doc for why this exists (a real bug: with more than one ENTRANCE ever saved, every recipe picked uniformly at random among all of them). Doesn't validate the name resolves to a real ENTRANCE here -- the generator itself logs a warning and falls back to random selection if it doesn't. */
+    private static int setRecipeEntrance(CommandSourceStack source, String name, String entranceName) {
+        WyrldRecipe recipe = WyrldRecipeStorage.get().load(name).orElse(null);
+        if (recipe == null) {
+            source.sendFailure(Component.literal("No WyrldRecipe named '" + name + "'."));
+            return 0;
+        }
+        WyrldRecipeStorage.get().save(recipe.withEntranceName(entranceName));
+        source.sendSuccess(() -> Component.literal("Pinned " + name + "'s entrance to '" + entranceName + "'."), false);
         return 1;
     }
 

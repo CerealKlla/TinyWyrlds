@@ -23,7 +23,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 public record WyrldRecipe(String name, int minRooms, int maxRooms,
                            List<WyrldLootEntry> commonLoot, List<WyrldLootEntry> rareLoot, List<WyrldLootEntry> epicLoot,
                            List<WyrldEntityEntry> enemyPool, List<WyrldEntityEntry> friendlyPool,
-                           Optional<String> questId) {
+                           Optional<String> questId, Optional<String> entranceName) {
 
     public static final Codec<WyrldRecipe> CODEC = RecordCodecBuilder.create(i -> i.group(
             Codec.STRING.fieldOf("name").forGetter(WyrldRecipe::name),
@@ -34,11 +34,17 @@ public record WyrldRecipe(String name, int minRooms, int maxRooms,
             WyrldLootEntry.CODEC.listOf().optionalFieldOf("epic_loot", List.of()).forGetter(WyrldRecipe::epicLoot),
             WyrldEntityEntry.CODEC.listOf().optionalFieldOf("enemy_pool", List.of()).forGetter(WyrldRecipe::enemyPool),
             WyrldEntityEntry.CODEC.listOf().optionalFieldOf("friendly_pool", List.of()).forGetter(WyrldRecipe::friendlyPool),
-            Codec.STRING.optionalFieldOf("quest_id").forGetter(WyrldRecipe::questId)
+            Codec.STRING.optionalFieldOf("quest_id").forGetter(WyrldRecipe::questId),
+            // Pins generation to one specific saved ENTRANCE WyrldPrint by name -- added 2026-11-06,
+            // real bug: with more than one ENTRANCE ever saved, every recipe picked uniformly at
+            // random among ALL of them (see generate.OneOffGenerator#planPlacements's own doc).
+            // Absent (the default, and every pre-existing recipe on disk) keeps the old random
+            // behavior unchanged.
+            Codec.STRING.optionalFieldOf("entrance_name").forGetter(WyrldRecipe::entranceName)
     ).apply(i, WyrldRecipe::new));
 
     public static WyrldRecipe empty(String name, int minRooms, int maxRooms) {
-        return new WyrldRecipe(name, minRooms, maxRooms, List.of(), List.of(), List.of(), List.of(), List.of(), Optional.empty());
+        return new WyrldRecipe(name, minRooms, maxRooms, List.of(), List.of(), List.of(), List.of(), List.of(), Optional.empty(), Optional.empty());
     }
 
     public List<WyrldLootEntry> lootPool(LootTier tier) {
@@ -51,22 +57,26 @@ public record WyrldRecipe(String name, int minRooms, int maxRooms,
 
     public WyrldRecipe withLootAdded(LootTier tier, WyrldLootEntry entry) {
         return switch (tier) {
-            case COMMON -> new WyrldRecipe(name, minRooms, maxRooms, appended(commonLoot, entry), rareLoot, epicLoot, enemyPool, friendlyPool, questId);
-            case RARE -> new WyrldRecipe(name, minRooms, maxRooms, commonLoot, appended(rareLoot, entry), epicLoot, enemyPool, friendlyPool, questId);
-            case EPIC -> new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, appended(epicLoot, entry), enemyPool, friendlyPool, questId);
+            case COMMON -> new WyrldRecipe(name, minRooms, maxRooms, appended(commonLoot, entry), rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName);
+            case RARE -> new WyrldRecipe(name, minRooms, maxRooms, commonLoot, appended(rareLoot, entry), epicLoot, enemyPool, friendlyPool, questId, entranceName);
+            case EPIC -> new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, appended(epicLoot, entry), enemyPool, friendlyPool, questId, entranceName);
         };
     }
 
     public WyrldRecipe withEnemyAdded(WyrldEntityEntry entry) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, appended(enemyPool, entry), friendlyPool, questId);
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, appended(enemyPool, entry), friendlyPool, questId, entranceName);
     }
 
     public WyrldRecipe withFriendlyAdded(WyrldEntityEntry entry) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, appended(friendlyPool, entry), questId);
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, appended(friendlyPool, entry), questId, entranceName);
     }
 
     public WyrldRecipe withQuestId(String newQuestId) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, Optional.of(newQuestId));
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, Optional.of(newQuestId), entranceName);
+    }
+
+    public WyrldRecipe withEntranceName(String newEntranceName) {
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, Optional.of(newEntranceName));
     }
 
     private static <T> List<T> appended(List<T> list, T entry) {

@@ -186,6 +186,14 @@ system" — explicit user instruction, to avoid confusion with Blueprynts' own "
   gold tint, placing/walking through any of the 3 item variants, and dying/respawning — every one
   needs a real connected player.
 
+**Real bug fixed: generation picked a random ENTRANCE regardless of which recipe asked, 2026-11-06**
+(see [context/decisions.md](context/decisions.md)) -- live report from Arryval's first dev-client
+playtest: a new player landed in a generic cylinder-cave room instead of the hand-built tutorial
+room. `generate.OneOffGenerator#planPlacements` picked uniformly at random among **every** saved
+ENTRANCE, with no recipe awareness at all. New optional `WyrldRecipe#entranceName` field pins
+generation to one specific saved ENTRANCE by name (absent = old random behavior, unaffected); new
+`/tinywyrlds recipe setentrance` command. `./gradlew build` green. **Not yet re-confirmed live.**
+
 **Generic exit-intercept hook added, 2026-11-06** (see [context/decisions.md](context/decisions.md))
 — `instance.WyrldExitHandler`/`WyrldExitHooks`/`WyrldExitListener` + `api.TinyWyrlds
 #registerExitHandler`, built for Arryval's new-player onboarding feature but deliberately generic

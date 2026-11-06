@@ -117,7 +117,7 @@ public final class OneOffGenerator {
     }
 
     private static GenerateResult generate(MinecraftServer server, int minRooms, int maxRooms, WyrldRecipe recipe) {
-        PlanResult plan = planPlacements(minRooms, maxRooms);
+        PlanResult plan = planPlacements(minRooms, maxRooms, recipe == null ? Optional.empty() : recipe.entranceName());
         if (plan == null) {
             return null;
         }
@@ -196,7 +196,7 @@ public final class OneOffGenerator {
      *  investigate. @return each placed piece as {@code "<type>:<name>"}, or an empty list if no
      *  ROOM/ENTRANCE WyrldPrints are saved at all. */
     public static List<String> planOnceForDebug(int minRooms, int maxRooms) {
-        PlanResult plan = planPlacements(minRooms, maxRooms);
+        PlanResult plan = planPlacements(minRooms, maxRooms, Optional.empty());
         if (plan == null) {
             return List.of();
         }
@@ -204,13 +204,32 @@ public final class OneOffGenerator {
     }
 
     @SuppressWarnings("deprecation")
-    private static PlanResult planPlacements(int minRooms, int maxRooms) {
+    private static PlanResult planPlacements(int minRooms, int maxRooms, Optional<String> entranceName) {
         List<WyrldPrintRecord> rooms = WyrldPrintStorage.get().listAll().stream()
                 .filter(r -> r.type() == WyrldPrintType.ROOM).toList();
         List<WyrldPrintRecord> connectors = WyrldPrintStorage.get().listAll().stream()
                 .filter(r -> r.type() == WyrldPrintType.CONNECTOR).toList();
-        List<WyrldPrintRecord> entrances = WyrldPrintStorage.get().listAll().stream()
+        List<WyrldPrintRecord> allEntrances = WyrldPrintStorage.get().listAll().stream()
                 .filter(r -> r.type() == WyrldPrintType.ENTRANCE).toList();
+        // A recipe naming a specific entrance (e.g. Arryval's WelcomeTutorial, which must never
+        // land a new player in an unrelated dungeon's entrance) gets pinned to just that one --
+        // real bug found live, 2026-11-06: with more than one ENTRANCE WyrldPrint ever saved, every
+        // recipe was picking uniformly at random among ALL of them, including ones meant for a
+        // completely different recipe. Falls back to the saved piece's own type if the name exists
+        // but isn't actually an ENTRANCE, and falls back to the full list (old random behavior) if
+        // the name doesn't resolve at all -- logged, not a hard failure, since a stale/renamed
+        // reference shouldn't brick generation entirely.
+        List<WyrldPrintRecord> entrances = allEntrances;
+        if (entranceName.isPresent()) {
+            List<WyrldPrintRecord> pinned = allEntrances.stream().filter(r -> r.name().equals(entranceName.get())).toList();
+            if (pinned.isEmpty()) {
+                com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.warn(
+                        "OneOffGenerator: recipe named entrance '{}' not found among saved ENTRANCE WyrldPrints -- falling back to random selection",
+                        entranceName.get());
+            } else {
+                entrances = pinned;
+            }
+        }
         // "There should never be an unused/dead-end. there will be rooms with only 1 door, those
         // are how we will end those paths" (explicit user spec, 2026-10-14) -- a ROOM with exactly
         // one connector point is the dedicated closing piece for the second pass below. Attaching
