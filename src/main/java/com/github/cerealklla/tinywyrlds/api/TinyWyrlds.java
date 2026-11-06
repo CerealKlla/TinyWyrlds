@@ -3,6 +3,7 @@ package com.github.cerealklla.tinywyrlds.api;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.github.cerealklla.tinywyrlds.instance.WyrldExitHandler;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.EntranceEnterResult;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.EntranceEnterResults;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceEntity;
@@ -55,5 +56,10 @@ public final class TinyWyrlds {
      *  established bridge-polls-the-source-mod convention rather than needing any shared event. */
     public static Optional<EntranceEnterResult> getEnterResult(UUID entranceId) {
         return EntranceEnterResults.get(entranceId);
+    }
+
+    /** See {@link WyrldExitHandler}'s own doc -- a chance to intercept/claim a player's exit from a Wyrld before the real teleport happens. */
+    public static void registerExitHandler(WyrldExitHandler handler) {
+        com.github.cerealklla.tinywyrlds.instance.WyrldExitHooks.register(handler);
     }
 }

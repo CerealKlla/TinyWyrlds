@@ -186,4 +186,11 @@ system" — explicit user instruction, to avoid confusion with Blueprynts' own "
   gold tint, placing/walking through any of the 3 item variants, and dying/respawning — every one
   needs a real connected player.
 
+**Generic exit-intercept hook added, 2026-11-06** (see [context/decisions.md](context/decisions.md))
+— `instance.WyrldExitHandler`/`WyrldExitHooks`/`WyrldExitListener` + `api.TinyWyrlds
+#registerExitHandler`, built for Arryval's new-player onboarding feature but deliberately generic
+(open registration). Real `EntityTravelToDimensionEvent` hook, not the previously-assumed
+`EntityTeleportEvent.TeleportPortal` (confirmed via direct decompiled-source check that no such
+event exists in this NeoForge version). `./gradlew build` green. **Not yet live-tested.**
+
 See [context/classes/](context/classes/) for per-class reference.

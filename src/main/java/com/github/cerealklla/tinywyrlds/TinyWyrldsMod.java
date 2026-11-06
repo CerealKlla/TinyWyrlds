@@ -75,6 +75,7 @@ public class TinyWyrldsMod {
         NeoForge.EVENT_BUS.register(new AdvancementBlocker());
         NeoForge.EVENT_BUS.register(new WyrldEntranceProximityTicker());
         NeoForge.EVENT_BUS.register(new WyrldRespawnListener());
+        NeoForge.EVENT_BUS.register(new com.github.cerealklla.tinywyrlds.instance.WyrldExitListener());
         NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) -> DebugCommands.register(event.getDispatcher()));
     }
 
