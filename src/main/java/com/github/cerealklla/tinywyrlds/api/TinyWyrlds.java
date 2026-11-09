@@ -10,6 +10,7 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceEntity;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 
 /**
  * This mod's first public cross-mod facade -- same "thin wrapper over real internals" convention
@@ -61,5 +62,43 @@ public final class TinyWyrlds {
     /** See {@link WyrldExitHandler}'s own doc -- a chance to intercept/claim a player's exit from a Wyrld before the real teleport happens. */
     public static void registerExitHandler(WyrldExitHandler handler) {
         com.github.cerealklla.tinywyrlds.instance.WyrldExitHooks.register(handler);
+    }
+
+    /**
+     * A genuine toggle of the lever/button tagged {@code tag} within dungeon instance {@code
+     * dungeonInstanceId} -- on becomes off, off becomes on, unconditionally (see {@code
+     * interactive.TaggedInteractiveBlockEntity#toggle}'s own doc for why it must never silently
+     * fail to flip). {@code dungeonInstanceId} is the real generated Wyrld's own id (a {@link
+     * EntranceEnterResult#wyrldId}, not the entrance id passed to {@link #spawnEntrance}). Added
+     * 2026-11-06, explicit user design: "a way for a quest to target a specific lever" -- the tag
+     * is authored once, directly onto the block, while building the room (see {@code
+     * interactive.TaggedInteractiveBlockEntity}'s own doc for the full design and why there's
+     * deliberately no position-keyed lookup table anywhere in this). A no-op if nothing's currently
+     * registered under that (instance, tag) pair -- e.g. the tag doesn't exist in this recipe's own
+     * WyrldPrint, or (very unlikely in practice) the tagged block's chunk isn't currently loaded.
+     */
+    public static void toggleState(UUID dungeonInstanceId, String tag) {
+        com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedInteractiveRegistry.find(dungeonInstanceId, tag)
+                .ifPresent(com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedInteractiveBlockEntity::toggle);
+    }
+
+    /**
+     * Clears {@code player}'s own "I'm currently inside a Wyrld" tracking state -- real fix,
+     * 2026-11-06, for a serious live bug (Arryval's own exit-portal picker): a {@link
+     * WyrldExitHandler} that claims an exit and teleports the player itself (rather than letting the
+     * real {@code wyrldprint.entrance.ExitPortalBlock} portal mechanism run) was never calling
+     * {@code instance.WyrldManager#resolveLeaveDestination} at all, since that only happens inside
+     * the vanilla {@code Portal#getPortalDestination} path this exact claim mechanism exists to
+     * bypass. Left unresolved, the player's own {@code instance.PlayerWyrldData#currentWyrldId}
+     * stayed permanently set to the Wyrld they'd just left -- so {@code instance.WyrldRespawnListener}
+     * (which keys purely off that persisted field, not the player's real current dimension) incorrectly
+     * sent them back into that Wyrld on their *next* death, anywhere, including a death that happened
+     * nowhere near a Wyrld at all. Call this immediately after performing any such direct teleport, in
+     * addition to -- not instead of -- the real teleport itself; the discarded return value ({@code
+     * instance.WyrldManager.LeaveDestination}) is irrelevant here since the caller already knows
+     * exactly where the player is really going.
+     */
+    public static void markLeftWyrld(ServerPlayer player) {
+        com.github.cerealklla.tinywyrlds.instance.WyrldManager.resolveLeaveDestination(player);
     }
 }

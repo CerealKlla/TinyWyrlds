@@ -11,8 +11,10 @@ import java.util.UUID;
 
 import com.github.cerealklla.tinywyrlds.instance.WyrldInstanceRecord;
 import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
+import com.github.cerealklla.tinywyrlds.registration.ModBlocks;
 import com.github.cerealklla.tinywyrlds.space.FreeRect;
 import com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension;
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.ExitPortalPingMarkerEntity;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintCell;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintPoint;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintRecord;
@@ -760,7 +762,7 @@ public final class OneOffGenerator {
         int worldForwardOffset = inner.x1() + MARGIN - minF;
         int worldLateralOffset = inner.z1() + MARGIN - minL;
 
-        record PendingCell(BlockPos pos, BlockState state, int y) {
+        record PendingCell(BlockPos pos, BlockState state, int y, java.util.Optional<String> tag) {
         }
         List<PendingCell> pending = new ArrayList<>();
         List<MarkerSpot> markerSpots = new ArrayList<>();
@@ -786,13 +788,28 @@ public final class OneOffGenerator {
                     markerSpots.add(new MarkerSpot(worldPos, marker.kind()));
                     finalState = Blocks.AIR.defaultBlockState();
                 }
-                pending.add(new PendingCell(worldPos, finalState, worldY));
+                pending.add(new PendingCell(worldPos, finalState, worldY, cell.tag()));
             }
         }
         pending.sort(Comparator.comparingInt(PendingCell::y));
         for (PendingCell cell : pending) {
             level.setBlock(cell.pos(), cell.state(), 3);
+            // A tag captured off a TaggedInteractiveBlockEntity in the crafting zone (see
+            // WyrldPrintCapture's own doc) -- the one moment this specific placed block gets a real
+            // dungeonInstanceId, since no generated instance existed yet when the tag was authored.
+            if (cell.tag().isPresent()
+                    && level.getBlockEntity(cell.pos()) instanceof com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedInteractiveBlockEntity tagged) {
+                tagged.setTagAndInstance(cell.tag().get(), instance.id());
+            }
         }
+
+        List<BlockPos> exitPortalCells = new ArrayList<>();
+        for (PendingCell cell : pending) {
+            if (cell.state().getBlock() == ModBlocks.EXIT_PORTAL.get()) {
+                exitPortalCells.add(cell.pos());
+            }
+        }
+        spawnExitPortalPingMarkers(level, exitPortalCells);
 
         List<UUID> spawnedEnemyIds = recipe != null ? populate(level, markerSpots, recipe) : List.of();
 
@@ -807,6 +824,36 @@ public final class OneOffGenerator {
             }
         }
         return new GenerateResult(instance, spawnPoints, dungeonId, spawnedEnemyIds);
+    }
+
+    /**
+     * One {@link ExitPortalPingMarkerEntity} per connected {@code ExitPortalBlock} sheet actually
+     * placed by this generation -- a captured Entrance's exit portal is just raw {@code
+     * WyrldPrintCell} state like any other block, stamped above with no special handling at all, so
+     * (unlike {@code ExitPortalItem#useOn}'s own authoring-time spawn) nothing here would otherwise
+     * ever create the marker a real generated instance actually needs. Flood-fills face-adjacent
+     * cells (same connectivity concept {@code ExitPortalBlock#breakConnectedNeighbors} already uses
+     * for the opposite purpose) purely to dedupe a multi-cell 3x3/5x5 sheet down to exactly one
+     * marker, not one per cell.
+     */
+    private static void spawnExitPortalPingMarkers(ServerLevel level, List<BlockPos> exitPortalCells) {
+        java.util.Set<BlockPos> remaining = new java.util.HashSet<>(exitPortalCells);
+        while (!remaining.isEmpty()) {
+            BlockPos start = remaining.iterator().next();
+            java.util.Deque<BlockPos> queue = new java.util.ArrayDeque<>();
+            queue.add(start);
+            remaining.remove(start);
+            while (!queue.isEmpty()) {
+                BlockPos current = queue.poll();
+                for (Direction direction : Direction.values()) {
+                    BlockPos neighbor = current.relative(direction);
+                    if (remaining.remove(neighbor)) {
+                        queue.add(neighbor);
+                    }
+                }
+            }
+            ExitPortalPingMarkerEntity.create(level, start);
+        }
     }
 
     /** A real generated dungeon never shows the raw Connector Point door/trapdoor or its glass

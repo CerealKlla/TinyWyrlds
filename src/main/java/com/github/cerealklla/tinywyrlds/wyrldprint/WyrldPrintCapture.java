@@ -146,7 +146,11 @@ public final class WyrldPrintCapture {
                 for (int y = boxMinY; y <= boxMaxY; y++) {
                     BlockPos pos = new BlockPos(x, y, z);
                     BlockState state = clearToAir.containsKey(pos) ? Blocks.AIR.defaultBlockState() : level.getBlockState(pos);
-                    cells.add(new WyrldPrintCell(x - minX, z - originLateral, y - WyrldManager.BASELINE_Y, state));
+                    Optional<String> tag = !clearToAir.containsKey(pos)
+                            && level.getBlockEntity(pos) instanceof com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedInteractiveBlockEntity tagged
+                            && !tagged.tag().isBlank()
+                            ? Optional.of(tagged.tag()) : Optional.empty();
+                    cells.add(new WyrldPrintCell(x - minX, z - originLateral, y - WyrldManager.BASELINE_Y, state, tag));
                 }
             }
         }

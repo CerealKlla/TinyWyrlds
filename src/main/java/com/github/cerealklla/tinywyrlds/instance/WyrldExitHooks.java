@@ -26,4 +26,11 @@ public final class WyrldExitHooks {
         }
         return false;
     }
+
+    /** Notifies every registered handler's {@link WyrldExitHandler#onApproach} -- see that method's own doc. Unlike {@link #tryHandle}, nothing here is claimed/cancelled, so every handler always runs. */
+    public static void notifyApproach(ServerPlayer player) {
+        for (WyrldExitHandler handler : HANDLERS) {
+            handler.onApproach(player);
+        }
+    }
 }

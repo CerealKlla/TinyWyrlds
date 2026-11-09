@@ -2,7 +2,10 @@ package com.github.cerealklla.tinywyrlds;
 
 import com.github.cerealklla.tinywyrlds.registration.ModBlocks;
 import com.github.cerealklla.tinywyrlds.registration.ModEntities;
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.ExitPortalPingMarkerRenderer;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceRenderer;
+import com.github.cerealklla.tinywyrlds.wyrldprint.interactive.client.TagPromptScreen;
+import com.github.cerealklla.tinywyrlds.wyrldprint.interactive.ClientTagPromptRequests;
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.ClientWyrldPrintRequests;
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.WyrldWorkbenchScreen;
 
@@ -29,6 +32,7 @@ public class TinyWyrldsModClient {
     @SubscribeEvent
     static void onRegisterRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(ModEntities.WYRLD_ENTRANCE.get(), WyrldEntranceRenderer::new);
+        event.registerEntityRenderer(ModEntities.EXIT_PORTAL_PING_MARKER.get(), ExitPortalPingMarkerRenderer::new);
     }
 
     @SubscribeEvent
@@ -43,5 +47,7 @@ public class TinyWyrldsModClient {
     static void onClientTick(ClientTickEvent.Post event) {
         ClientWyrldPrintRequests.takePendingWorkbenchScreen()
                 .ifPresent(request -> Minecraft.getInstance().setScreen(new WyrldWorkbenchScreen(request)));
+        ClientTagPromptRequests.takePendingPrompt()
+                .ifPresent(request -> Minecraft.getInstance().setScreen(new TagPromptScreen(request.pos(), request.currentTag())));
     }
 }

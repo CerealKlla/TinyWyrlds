@@ -1,6 +1,7 @@
 package com.github.cerealklla.tinywyrlds.registration;
 
 import com.github.cerealklla.tinywyrlds.TinyWyrldsMod;
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.ExitPortalPingMarkerEntity;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceEntity;
 
 import net.minecraft.core.registries.Registries;
@@ -23,4 +24,10 @@ public final class ModEntities {
                     WyrldEntranceEntity::new, MobCategory.MISC)
                     .sized(1.0F, 1.0F)
                     .build(ResourceKey.create(Registries.ENTITY_TYPE, Identifier.fromNamespaceAndPath(TinyWyrldsMod.MODID, "wyrld_entrance"))));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<ExitPortalPingMarkerEntity>> EXIT_PORTAL_PING_MARKER =
+            ENTITY_TYPES.register("exit_portal_ping_marker", () -> EntityType.Builder.<ExitPortalPingMarkerEntity>of(
+                    ExitPortalPingMarkerEntity::new, MobCategory.MISC)
+                    .sized(1.0F, 1.0F)
+                    .build(ResourceKey.create(Registries.ENTITY_TYPE, Identifier.fromNamespaceAndPath(TinyWyrldsMod.MODID, "exit_portal_ping_marker"))));
 }

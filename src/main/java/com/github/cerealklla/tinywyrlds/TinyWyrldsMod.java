@@ -8,6 +8,7 @@ import com.github.cerealklla.tinywyrlds.instance.WyrldLifecycleTicker;
 import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
 import com.github.cerealklla.tinywyrlds.instance.WyrldRespawnListener;
 import com.github.cerealklla.tinywyrlds.registration.ModAttachments;
+import com.github.cerealklla.tinywyrlds.registration.ModBlockEntities;
 import com.github.cerealklla.tinywyrlds.registration.ModBlocks;
 import com.github.cerealklla.tinywyrlds.registration.ModEntities;
 import com.github.cerealklla.tinywyrlds.registration.ModItems;
@@ -17,6 +18,10 @@ import com.github.cerealklla.tinywyrlds.voxel.VoxelLockListener;
 import com.github.cerealklla.tinywyrlds.wyrldprint.CreativeZoneTicker;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintAreaSetupListener;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceProximityTicker;
+import com.github.cerealklla.tinywyrlds.wyrldprint.interactive.OpenTagPromptPayload;
+import com.github.cerealklla.tinywyrlds.wyrldprint.interactive.SetTagPayload;
+import com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TagInteractListener;
+import com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedInteractiveBlockEntity;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintCapture;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintPlacement;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintRecord;
@@ -61,6 +66,7 @@ public class TinyWyrldsMod {
     public TinyWyrldsMod(IEventBus modEventBus, ModContainer modContainer) {
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
         ModBlocks.BLOCKS.register(modEventBus);
+        ModBlockEntities.BLOCK_ENTITIES.register(modEventBus);
         ModItems.ITEMS.register(modEventBus);
         ModEntities.ENTITY_TYPES.register(modEventBus);
 
@@ -76,6 +82,7 @@ public class TinyWyrldsMod {
         NeoForge.EVENT_BUS.register(new WyrldEntranceProximityTicker());
         NeoForge.EVENT_BUS.register(new WyrldRespawnListener());
         NeoForge.EVENT_BUS.register(new com.github.cerealklla.tinywyrlds.instance.WyrldExitListener());
+        NeoForge.EVENT_BUS.register(new TagInteractListener());
         NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) -> DebugCommands.register(event.getDispatcher()));
     }
 
@@ -105,6 +112,8 @@ public class TinyWyrldsMod {
         event.accept(ModItems.EXIT_PORTAL_SMALL_ITEM.get());
         event.accept(ModItems.EXIT_PORTAL_MEDIUM_ITEM.get());
         event.accept(ModItems.EXIT_PORTAL_LARGE_ITEM.get());
+        event.accept(ModItems.TAGGED_LEVER_ITEM.get());
+        event.accept(ModItems.TAGGED_BUTTON_ITEM.get());
     }
 
     /** Backs {@code workbench.WyrldWorkbenchBlock}'s GUI -- each handler calls straight into the
@@ -190,6 +199,16 @@ public class TinyWyrldsMod {
                     }
                     enterGenerated(player, result);
                 });
+
+        registrar.playToClient(OpenTagPromptPayload.TYPE, OpenTagPromptPayload.STREAM_CODEC,
+                (payload, context) -> com.github.cerealklla.tinywyrlds.wyrldprint.interactive.ClientTagPromptRequests.requestPrompt(payload));
+
+        registrar.playToServer(SetTagPayload.TYPE, SetTagPayload.STREAM_CODEC,
+                (payload, context) -> withWyrldSpace(context, level -> {
+                    if (level.getBlockEntity(payload.pos()) instanceof TaggedInteractiveBlockEntity tagged) {
+                        tagged.setTag(payload.tag());
+                    }
+                }));
 
         registrar.playToServer(RegenerateDungeonPayload.TYPE, RegenerateDungeonPayload.STREAM_CODEC,
                 (payload, context) -> {

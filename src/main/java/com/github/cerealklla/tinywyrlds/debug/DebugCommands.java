@@ -54,6 +54,12 @@ public final class DebugCommands {
                                                 IntegerArgumentType.getInteger(ctx, "length"))))))
                 .then(Commands.literal("leave")
                         .executes(ctx -> leave(ctx.getSource())))
+                .then(Commands.literal("toggle")
+                        .then(Commands.argument("instanceId", StringArgumentType.string())
+                                .then(Commands.argument("tag", StringArgumentType.string())
+                                        .executes(ctx -> toggleState(ctx.getSource(),
+                                                StringArgumentType.getString(ctx, "instanceId"),
+                                                StringArgumentType.getString(ctx, "tag"))))))
                 .then(Commands.literal("craftzone")
                         .executes(ctx -> enterCraftZone(ctx.getSource())))
                 .then(Commands.literal("wyrldprint")
@@ -322,6 +328,25 @@ public final class DebugCommands {
         }
         boolean left = WyrldManager.leave(player);
         source.sendSuccess(() -> Component.literal(left ? "Left the Wyrld." : "You're not inside a Wyrld."), false);
+        return 1;
+    }
+
+    /** Debug-only: directly exercises {@code api.TinyWyrlds#toggleState} with no quest/mod-side
+     *  chain involved -- added 2026-11-06 to isolate whether the tag-registry/lever-activation
+     *  mechanism itself works, independent of whatever's calling into it. */
+    private static int toggleState(CommandSourceStack source, String instanceId, String tag) {
+        java.util.UUID id;
+        try {
+            id = java.util.UUID.fromString(instanceId);
+        } catch (IllegalArgumentException e) {
+            source.sendFailure(Component.literal("'" + instanceId + "' isn't a valid instance UUID."));
+            return 0;
+        }
+        boolean found = com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedInteractiveRegistry.find(id, tag).isPresent();
+        com.github.cerealklla.tinywyrlds.api.TinyWyrlds.toggleState(id, tag);
+        source.sendSuccess(() -> Component.literal(found
+                ? "Found and toggled '" + tag + "' in instance " + id + "."
+                : "Nothing registered under tag '" + tag + "' in instance " + id + " -- check it's really tagged, and that this is the right instance id."), false);
         return 1;
     }
 

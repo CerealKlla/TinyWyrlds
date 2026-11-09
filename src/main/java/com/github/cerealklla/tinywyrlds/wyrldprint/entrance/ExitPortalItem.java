@@ -81,6 +81,9 @@ public class ExitPortalItem extends Item {
         }
         serverLevel.playSound(null, placeAt, portalState.getSoundType().getPlaceSound(), SoundSource.BLOCKS,
                 (portalState.getSoundType().getVolume() + 1.0F) / 2.0F, portalState.getSoundType().getPitch() * 0.8F);
+        // One Pingable marker per placed sheet, at its own centerline anchor -- see
+        // ExitPortalPingMarkerEntity's own doc.
+        ExitPortalPingMarkerEntity.create(serverLevel, placeAt);
 
         if (!player.getAbilities().instabuild) {
             context.getItemInHand().shrink(1);

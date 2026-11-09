@@ -68,6 +68,16 @@ public final class WyrldPrintPlacement {
         for (WyrldPrintCell cell : sorted) {
             BlockPos pos = new BlockPos(anchorX + cell.relForward(), WyrldManager.BASELINE_Y + cell.relY(), cell.relLateral());
             level.setBlock(pos, cell.state(), 3);
+            // Real bug, found live 2026-11-06: a captured tag (see WyrldPrintCell's own doc) was
+            // never restored onto the freshly-placed block here, so Load-ing an already-tagged
+            // WyrldPrint back into the crafting zone for further editing -- then Save-ing again --
+            // silently dropped the tag from the file, with no error anywhere. generate.OneOffGenerator
+            // #stamp already does the equivalent real-generation-time restoration; this is the
+            // matching authoring-time one.
+            if (cell.tag().isPresent()
+                    && level.getBlockEntity(pos) instanceof com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedInteractiveBlockEntity tagged) {
+                tagged.setTag(cell.tag().get());
+            }
         }
 
         // Re-apply the glass-fill visual aid around every connector point -- real user report,

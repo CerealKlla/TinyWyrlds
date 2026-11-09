@@ -33,6 +33,8 @@ public final class ModItems {
     public static final DeferredItem<BlockItem> CONNECTOR_POINT_FLOOR_LARGE_ITEM = ITEMS.registerSimpleBlockItem(ModBlocks.CONNECTOR_POINT_FLOOR_LARGE);
     public static final DeferredItem<BlockItem> SPAWN_LOCATION_ITEM = ITEMS.registerSimpleBlockItem(ModBlocks.SPAWN_LOCATION);
     public static final DeferredItem<BlockItem> WYRLD_WORKBENCH_ITEM = ITEMS.registerSimpleBlockItem(ModBlocks.WYRLD_WORKBENCH);
+    public static final DeferredItem<BlockItem> TAGGED_LEVER_ITEM = ITEMS.registerSimpleBlockItem(ModBlocks.TAGGED_LEVER);
+    public static final DeferredItem<BlockItem> TAGGED_BUTTON_ITEM = ITEMS.registerSimpleBlockItem(ModBlocks.TAGGED_BUTTON);
 
     public static final DeferredItem<WyrldReturnItem> WYRLD_RETURN_ITEM = ITEMS.register("wyrld_return_item",
             key -> new WyrldReturnItem(new Item.Properties()

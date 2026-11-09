@@ -9,6 +9,8 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorPointSize;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.FloorConnectorPointBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.WallConnectorPointBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.ExitPortalBlock;
+import com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedButtonBlock;
+import com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedLeverBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerKind;
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.WyrldWorkbenchBlock;
@@ -64,6 +66,24 @@ public final class ModBlocks {
                     .noOcclusion()
                     .lightLevel(state -> 11)
                     .strength(-1.0F)
+                    .setId(ResourceKey.create(Registries.BLOCK, key))));
+
+    /** A real vanilla lever/stone button, just with a {@link TaggedInteractiveBlockEntity} attached
+     *  -- see that class's own doc. Same push/strength/sound as vanilla's own lever/stone button. */
+    public static final DeferredBlock<TaggedLeverBlock> TAGGED_LEVER = BLOCKS.register("tagged_lever",
+            key -> new TaggedLeverBlock(BlockBehaviour.Properties.of()
+                    .noCollision()
+                    .strength(0.5F)
+                    .pushReaction(PushReaction.DESTROY)
+                    .sound(SoundType.WOOD)
+                    .setId(ResourceKey.create(Registries.BLOCK, key))));
+
+    public static final DeferredBlock<TaggedButtonBlock> TAGGED_BUTTON = BLOCKS.register("tagged_button",
+            key -> new TaggedButtonBlock(BlockBehaviour.Properties.of()
+                    .noCollision()
+                    .strength(0.5F)
+                    .pushReaction(PushReaction.DESTROY)
+                    .sound(SoundType.STONE)
                     .setId(ResourceKey.create(Registries.BLOCK, key))));
 
     /** The six "possible content" marker blocks (loot x3 tiers, enemy, friendly, interactive) --
