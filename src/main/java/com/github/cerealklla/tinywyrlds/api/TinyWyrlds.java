@@ -7,8 +7,12 @@ import com.github.cerealklla.tinywyrlds.instance.WyrldExitHandler;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.EntranceEnterResult;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.EntranceEnterResults;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceEntity;
+import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldEntityEntry;
+import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldRecipe;
+import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldRecipeStorage;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -100,5 +104,30 @@ public final class TinyWyrlds {
      */
     public static void markLeftWyrld(ServerPlayer player) {
         com.github.cerealklla.tinywyrlds.instance.WyrldManager.resolveLeaveDestination(player);
+    }
+
+    /**
+     * Ensures a {@code WyrldRecipe} named {@code name} exists -- a no-op if it already does,
+     * otherwise creates one (the given room-count range, one friendly entity, pinned to a single
+     * named Entrance) and saves it. Added 2026-11-09, explicit user instruction, after this exact
+     * gap bit a real player twice: the previously-documented one-time manual admin setup
+     * ({@code /tinywyrlds recipe create/addfriendly/setentrance}) had to be run by hand against
+     * Production, then had to be run AGAIN for a fresh singleplayer world, since a {@code
+     * WyrldRecipe} is per-world persisted data like everything else this mod owns -- there is no
+     * way to "pre-ship" one. Idempotent and safe to call on every server boot (same "generate once
+     * if missing" shape every other {@code nuclyus.server.PersistedServerStore} consumer in this
+     * suite already follows) -- a caller like Arryval's own tutorial bootstrap should call this
+     * unconditionally at {@code ServerStartingEvent}, every boot, on every world, so this can never
+     * go missing again regardless of how the world/server came to exist.
+     */
+    public static void ensureRecipeExists(String name, int minRooms, int maxRooms,
+            Identifier friendlyEntityType, int friendlyWeight, String entranceName) {
+        if (WyrldRecipeStorage.get().load(name).isPresent()) {
+            return;
+        }
+        WyrldRecipe recipe = WyrldRecipe.empty(name, minRooms, maxRooms)
+                .withFriendlyAdded(new WyrldEntityEntry(friendlyEntityType, friendlyWeight))
+                .withEntranceName(entranceName);
+        WyrldRecipeStorage.get().save(recipe);
     }
 }
