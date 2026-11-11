@@ -21,16 +21,18 @@ import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
 
 /**
- * The real-world end of a Tunnel (see {@code generate.OneOffGenerator#generateTunnel}) -- explicit
- * user spec: "for now just make the final entrance/exit look like a door standing on the ground; a
- * player right-clicking it enters." Deliberately NOT a real two-tall vanilla {@code DoorBlock}
- * (hinge/half/open-state machinery, two block positions) -- a single-cell placeholder visual (a
- * thin door-shaped panel, see {@code models/block/tunnel_door.json}, reusing vanilla's own
- * {@code oak_door} texture) standing in for a nicer future look, same "for now" framing the user's
- * own request used. No {@code BlockItem}/placement item exists for this on purpose -- every known
- * use case so far (a settlement's own internal shortcut, a world-gen mountain bypass, a future
- * Mayor-placed stake pair) places a pair of these programmatically via {@code
- * api.TinyWyrlds#createTunnelDoorPair}, never by hand.
+ * The real-world end of a Tunnel (see {@code generate.OneOffGenerator#generateTunnel}) -- originally
+ * "a door standing on the ground," now a flat trapdoor/hatch lying on the ground instead, explicit
+ * user request 2026-11-11 ("Can we change the entrances from doors to trapdoors?") -- the player
+ * walks up to it and right-clicks it to enter. Class/registry name kept as-is (never renamed --
+ * already-placed real Tunnel pairs on Production reference this block by registry id) despite no
+ * longer being door-shaped; see {@code models/block/tunnel_door.json} for the real flat geometry,
+ * reusing vanilla's own {@code oak_trapdoor} texture. Deliberately NOT a real vanilla {@code
+ * TrapDoorBlock} (open/close animation, HALF/OPEN state machinery) -- same single-cell placeholder
+ * shape approach as before, just reshaped flat instead of standing. No {@code BlockItem}/placement
+ * item exists for this on purpose -- every known use case so far (a settlement's own internal
+ * shortcut, a world-gen mountain bypass, a Mayor-placed stake pair) places a pair of these
+ * programmatically via {@code api.TinyWyrlds#createTunnelDoorPair}, never by hand.
  */
 public class TunnelDoorBlock extends Block implements EntityBlock {
 

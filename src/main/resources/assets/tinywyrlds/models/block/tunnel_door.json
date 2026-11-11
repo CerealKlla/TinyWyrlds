@@ -1,12 +1,12 @@
 {
   "textures": {
-    "particle": "minecraft:block/oak_door_bottom",
-    "texture": "minecraft:block/oak_door_bottom"
+    "particle": "minecraft:block/oak_trapdoor",
+    "texture": "minecraft:block/oak_trapdoor"
   },
   "elements": [
     {
-      "from": [0, 0, 7],
-      "to": [16, 16, 9],
+      "from": [0, 0, 0],
+      "to": [16, 3, 16],
       "faces": {
         "down": { "texture": "#texture" },
         "up": { "texture": "#texture" },
