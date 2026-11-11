@@ -114,6 +114,13 @@ public record WyrldRecipe(String name, int minRooms, int maxRooms,
         return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel, List.copyOf(without));
     }
 
+    /** Bulk-replaces the whole tag list in one shot -- unlike {@link #withTagsAdded}/{@link
+     *  #withTagRemoved}'s single-tag shape, for a caller (e.g. {@code api.TinyWyrlds
+     *  #ensureTunnelRecipeExists}) that wants to set a recipe's required tags all at once. */
+    public WyrldRecipe withTags(List<String> newTags) {
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel, newTags);
+    }
+
     private static <T> List<T> appended(List<T> list, T entry) {
         List<T> copy = new java.util.ArrayList<>(list);
         copy.add(entry);

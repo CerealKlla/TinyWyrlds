@@ -1,5 +1,6 @@
 package com.github.cerealklla.tinywyrlds.api;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -204,15 +205,34 @@ public final class TinyWyrlds {
         });
     }
 
+    /** Every settlement Tunnel (automatic natural-village placement and Mayor-placed Tunnel
+     *  Stakes alike -- both route through {@link #ensureTunnelRecipeExists}) requires exactly this
+     *  tag set, explicit user spec 2026-11-11: "alter the settlement tunnel required tags to be
+     *  'Human', 'WellLit', and 'CitySewer'." Confirmed against the real saved WyrldPrints before
+     *  applying this: a "Human"-themed Room/Connector/Entrance already exists with all three tags,
+     *  separate from an untagged/"Natural" variant, so this is a real, satisfiable content split,
+     *  not a guess that happens to brick generation. */
+    private static final List<String> SETTLEMENT_TUNNEL_REQUIRED_TAGS = List.of("Human", "WellLit", "CitySewer");
+
     /** Same self-healing creates-if-missing idempotent shape as {@link #ensureRecipeExists}, but
      *  for a bare Tunnel recipe with no loot/mob pools at all -- the exact shape {@code
      *  zone.NaturalSettlementTunnelPlacer}'s own "a town's internal shortcut has no loot, no
      *  mobs" use case needs (see {@link WyrldLifecycle}'s own doc, point 1: a stake-placed pair
-     *  "might always be no loot, no mobs, public"). Safe to call on every server boot. */
+     *  "might always be no loot, no mobs, public"). Safe to call on every server boot. Also tops up
+     *  {@link #SETTLEMENT_TUNNEL_REQUIRED_TAGS} onto an already-existing recipe whose own tags are
+     *  still empty -- same "top up, never overwrite something already customized" shape {@link
+     *  #ensureRecipeExists} already uses for its loot/enemy pools, since no real way to customize a
+     *  Tunnel recipe's own tags exists yet. */
     public static void ensureTunnelRecipeExists(String name, int roomCount) {
         Optional<WyrldRecipe> existing = WyrldRecipeStorage.get().load(name);
-        if (existing.isEmpty()) {
-            WyrldRecipeStorage.get().save(WyrldRecipe.empty(name, roomCount, roomCount).withTunnel(true));
+        WyrldRecipe recipe = existing.orElseGet(() -> WyrldRecipe.empty(name, roomCount, roomCount).withTunnel(true));
+        boolean changed = existing.isEmpty();
+        if (recipe.tags().isEmpty()) {
+            recipe = recipe.withTags(SETTLEMENT_TUNNEL_REQUIRED_TAGS);
+            changed = true;
+        }
+        if (changed) {
+            WyrldRecipeStorage.get().save(recipe);
         }
     }
 

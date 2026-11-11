@@ -557,13 +557,13 @@ public final class OneOffGenerator {
      *     ENTRANCE to anything else), (when {@code roomCount > 0}) no ROOM is saved, or the second
      *     ENTRANCE genuinely never finds anywhere left to attach.
      */
-    private static TunnelPlanResult planTunnelPlacements(int roomCount) {
+    private static TunnelPlanResult planTunnelPlacements(int roomCount, List<String> requiredTags) {
         List<WyrldPrintRecord> rooms = WyrldPrintStorage.get().listAll().stream()
-                .filter(r -> r.type() == WyrldPrintType.ROOM).toList();
+                .filter(r -> r.type() == WyrldPrintType.ROOM).filter(r -> matchesTags(r, requiredTags)).toList();
         List<WyrldPrintRecord> connectors = WyrldPrintStorage.get().listAll().stream()
-                .filter(r -> r.type() == WyrldPrintType.CONNECTOR).toList();
+                .filter(r -> r.type() == WyrldPrintType.CONNECTOR).filter(r -> matchesTags(r, requiredTags)).toList();
         List<WyrldPrintRecord> entrances = WyrldPrintStorage.get().listAll().stream()
-                .filter(r -> r.type() == WyrldPrintType.ENTRANCE).toList();
+                .filter(r -> r.type() == WyrldPrintType.ENTRANCE).filter(r -> matchesTags(r, requiredTags)).toList();
         if (entrances.isEmpty() || connectors.isEmpty() || (roomCount > 0 && rooms.isEmpty())) {
             return null;
         }
@@ -725,7 +725,7 @@ public final class OneOffGenerator {
     public static TunnelGenerateResult generateTunnel(MinecraftServer server, WyrldRecipe recipe,
                                                         net.minecraft.core.GlobalPos destA, net.minecraft.core.GlobalPos destB,
                                                         com.github.cerealklla.tinywyrlds.instance.WyrldLifecycle lifecycle) {
-        TunnelPlanResult plan = planTunnelPlacements(recipe.minRooms());
+        TunnelPlanResult plan = planTunnelPlacements(recipe.minRooms(), recipe.tags());
         if (plan == null) {
             return null;
         }
