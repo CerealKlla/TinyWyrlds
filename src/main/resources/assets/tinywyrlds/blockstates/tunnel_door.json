@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "tinywyrlds:block/tunnel_door" },
+    "facing=east": { "model": "tinywyrlds:block/tunnel_door", "y": 90 },
+    "facing=south": { "model": "tinywyrlds:block/tunnel_door", "y": 180 },
+    "facing=west": { "model": "tinywyrlds:block/tunnel_door", "y": 270 }
+  }
+}

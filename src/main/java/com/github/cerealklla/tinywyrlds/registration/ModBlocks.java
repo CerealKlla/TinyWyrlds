@@ -9,6 +9,7 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorPointSize;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.FloorConnectorPointBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.WallConnectorPointBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.ExitPortalBlock;
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.TunnelDoorBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedButtonBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedLeverBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerBlock;
@@ -66,6 +67,16 @@ public final class ModBlocks {
                     .noOcclusion()
                     .lightLevel(state -> 11)
                     .strength(-1.0F)
+                    .setId(ResourceKey.create(Registries.BLOCK, key))));
+
+    /** See {@code wyrldprint.entrance.TunnelDoorBlock}'s own doc -- a placeholder door-shaped
+     *  single-cell visual, not a real two-tall vanilla door. */
+    public static final DeferredBlock<TunnelDoorBlock> TUNNEL_DOOR = BLOCKS.register("tunnel_door",
+            key -> new TunnelDoorBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.WOOD)
+                    .strength(3.0F)
+                    .noOcclusion()
+                    .sound(SoundType.WOOD)
                     .setId(ResourceKey.create(Registries.BLOCK, key))));
 
     /** A real vanilla lever/stone button, just with a {@link TaggedInteractiveBlockEntity} attached

@@ -9,13 +9,13 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.ServerboundCustomPayloadPacket;
 
-/** "Save..." sub-screen -- a name field plus a Type toggle (ROOM/CONNECTOR/ENTRANCE), same shape
- *  {@code debug.DebugCommands#saveWyrldPrint} already accepts. Closes fully on Save (matching
+/** "Save..." sub-screen -- a name field plus a Type toggle (ROOM/CONNECTOR/ENTRANCE/TUTORIAL), same
+ *  shape {@code debug.DebugCommands#saveWyrldPrint} already accepts. Closes fully on Save (matching
  *  Blueprynts' {@code ConstructionBoxActionsScreen} convention) since the result is reported in
  *  chat, not reflected back into this screen. */
 public class WyrldWorkbenchSaveScreen extends Screen {
 
-    private static final String[] TYPES = {"room", "connector", "entrance"};
+    private static final String[] TYPES = {"room", "connector", "entrance", "tutorial"};
 
     private final Screen parent;
     private final BlockPos workbenchPos;

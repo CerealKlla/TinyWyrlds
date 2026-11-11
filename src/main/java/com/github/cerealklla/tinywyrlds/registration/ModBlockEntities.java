@@ -1,6 +1,7 @@
 package com.github.cerealklla.tinywyrlds.registration;
 
 import com.github.cerealklla.tinywyrlds.TinyWyrldsMod;
+import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.TunnelDoorBlockEntity;
 import com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedInteractiveBlockEntity;
 
 import net.minecraft.core.registries.Registries;
@@ -20,4 +21,8 @@ public final class ModBlockEntities {
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<TaggedInteractiveBlockEntity>> TAGGED_INTERACTIVE =
             BLOCK_ENTITIES.register("tagged_interactive", () -> new BlockEntityType<>(
                     TaggedInteractiveBlockEntity::new, ModBlocks.TAGGED_LEVER.get(), ModBlocks.TAGGED_BUTTON.get()));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<TunnelDoorBlockEntity>> TUNNEL_DOOR =
+            BLOCK_ENTITIES.register("tunnel_door", () -> new BlockEntityType<>(
+                    TunnelDoorBlockEntity::new, ModBlocks.TUNNEL_DOOR.get()));
 }

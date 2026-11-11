@@ -41,21 +41,32 @@ public final class WyrldSpaceData extends SavedData {
 
     private final List<FreeRect> freeRects;
     private final Map<UUID, WyrldInstanceRecord> instances;
+    // Tunnel pair -> already-generated Wyrld instance id (see WyrldLifecycle's own doc), added
+    // 2026-11-11. Keyed by the pair's own UUID alone for PUBLIC (one shared instance for every
+    // entrant), or by "<pairId>:<playerId>" for INSTANCED (a private generation per player/party,
+    // first-come-first-generated, remembered the same way after that). A plain Map<String, UUID>
+    // rather than a nested Map<UUID, Map<UUID, UUID>> purely to keep the codec trivial -- this
+    // never needs enumerating by pair, only ever a single point lookup by the exact key a door
+    // click already knows.
+    private final Map<String, UUID> tunnelAssignments;
 
     private WyrldSpaceData() {
-        this(WyrldSpaceAllocator.initialUniverse(List.of(WyrldPrintArea.RESERVED_BOUNDS)), Map.of());
+        this(WyrldSpaceAllocator.initialUniverse(List.of(WyrldPrintArea.RESERVED_BOUNDS)), Map.of(), Map.of());
     }
 
-    private WyrldSpaceData(List<FreeRect> freeRects, Map<UUID, WyrldInstanceRecord> instances) {
+    private WyrldSpaceData(List<FreeRect> freeRects, Map<UUID, WyrldInstanceRecord> instances, Map<String, UUID> tunnelAssignments) {
         this.freeRects = new ArrayList<>(freeRects);
         this.instances = new HashMap<>(instances);
+        this.tunnelAssignments = new HashMap<>(tunnelAssignments);
     }
 
     private static Codec<WyrldSpaceData> codec() {
         return RecordCodecBuilder.create(i -> i.group(
                 Codec.list(FreeRect.CODEC).fieldOf("free_rects").forGetter(d -> d.freeRects),
                 Codec.unboundedMap(UUIDUtil.STRING_CODEC, WyrldInstanceRecord.CODEC)
-                        .optionalFieldOf("instances", Map.of()).forGetter(d -> d.instances)
+                        .optionalFieldOf("instances", Map.of()).forGetter(d -> d.instances),
+                Codec.unboundedMap(Codec.STRING, UUIDUtil.CODEC)
+                        .optionalFieldOf("tunnel_assignments", Map.of()).forGetter(d -> d.tunnelAssignments)
         ).apply(i, WyrldSpaceData::new));
     }
 
@@ -90,5 +101,14 @@ public final class WyrldSpaceData extends SavedData {
 
     public Map<UUID, WyrldInstanceRecord> allInstances() {
         return Map.copyOf(instances);
+    }
+
+    public Optional<UUID> getTunnelAssignment(String key) {
+        return Optional.ofNullable(tunnelAssignments.get(key));
+    }
+
+    public void putTunnelAssignment(String key, UUID wyrldId) {
+        tunnelAssignments.put(key, wyrldId);
+        setDirty();
     }
 }

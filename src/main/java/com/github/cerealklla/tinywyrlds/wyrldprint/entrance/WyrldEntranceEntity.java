@@ -71,6 +71,19 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
      *  isn't enough once entry is proximity-triggered rather than interact-triggered). */
     private EntranceEnterResult lastEnterResult;
 
+    /** Explicit user instruction, 2026-11-09, after a real live report of this entity spamming a
+     *  player's chat with a fresh failure line every single tick while they stood near a broken
+     *  entrance ("why the fuck are you just spamming chat over and over again?"), two corrections
+     *  in a row after that -- first, that only throttling the resend rate still spams nothing
+     *  useful ("what exactly do you envision happening by telling the player every 5 seconds that
+     *  files are missing? do you think a player is going to magically find these files to load
+     *  into the directory?"), then, after this was changed to a single one-time generic chat line
+     *  instead, that the player needs no message about this at all ("The player doesn't need to be
+     *  told at all") -- there is genuinely nothing a player can do about a missing recipe/
+     *  WyrldPrint, so the player-facing side of this is now nothing whatsoever: {@link
+     *  #handleGenerationFailure} only ever logs, on the server side, for whoever's actually
+     *  operating the server to notice and fix. */
+
     public WyrldEntranceEntity(EntityType<? extends WyrldEntranceEntity> type, Level level) {
         super(type, level);
     }
@@ -95,8 +108,10 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
         return lastEnterResult;
     }
 
-    /** @return {@code false} if the recipe no longer exists (renamed/deleted) or the Wyrld Space
-     *  dimension somehow isn't loaded -- a real, reportable failure, not a silent no-op. */
+    /** @return {@code false} if the recipe no longer exists (renamed/deleted), the Wyrld Space
+     *  dimension somehow isn't loaded, or generation has no WyrldPrint content to work with --
+     *  silent to the player by design now (see this class's own field-level doc), logged
+     *  server-side only. */
     public boolean enter(ServerPlayer player) {
         if (!(player.level().getServer().getLevel(com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension.KEY) instanceof ServerLevel wyrldLevel)) {
             return false;
@@ -108,12 +123,13 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
 
         WyrldRecipe recipe = WyrldRecipeStorage.get().load(recipeName).orElse(null);
         if (recipe == null) {
-            player.sendSystemMessage(Component.literal("This Entrance's own recipe ('" + recipeName + "') no longer exists."));
+            logGenerationFailure("Entrance " + entranceId + ": recipe '" + recipeName + "' no longer exists.");
             return false;
         }
         OneOffGenerator.GenerateResult result = OneOffGenerator.generate(player.level().getServer(), recipe);
         if (result == null) {
-            player.sendSystemMessage(Component.literal("Not enough saved WyrldPrints to generate a dungeon -- need at least 1 room or entrance."));
+            logGenerationFailure("Entrance " + entranceId + ": recipe '" + recipeName
+                    + "' has no ROOM/ENTRANCE WyrldPrints available to generate from.");
             return false;
         }
         generatedWyrldId = result.instance().id();
@@ -122,6 +138,12 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
             return WyrldManager.enterAt(player, generatedWyrldId, result.spawnPoints().get(0));
         }
         return WyrldManager.enter(player, generatedWyrldId);
+    }
+
+    /** See this class's own field-level doc above for why this is server-log-only -- never sent to
+     *  the player's chat, not even once. */
+    private void logGenerationFailure(String logDetail) {
+        com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.warn("WyrldEntranceEntity: {}", logDetail);
     }
 
     private void recordEnterResult(EntranceEnterResult result) {

@@ -23,7 +23,8 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 public record WyrldRecipe(String name, int minRooms, int maxRooms,
                            List<WyrldLootEntry> commonLoot, List<WyrldLootEntry> rareLoot, List<WyrldLootEntry> epicLoot,
                            List<WyrldEntityEntry> enemyPool, List<WyrldEntityEntry> friendlyPool,
-                           Optional<String> questId, Optional<String> entranceName) {
+                           Optional<String> questId, Optional<String> entranceName, boolean useLatestTutorialPrint,
+                           boolean tunnel) {
 
     public static final Codec<WyrldRecipe> CODEC = RecordCodecBuilder.create(i -> i.group(
             Codec.STRING.fieldOf("name").forGetter(WyrldRecipe::name),
@@ -40,11 +41,23 @@ public record WyrldRecipe(String name, int minRooms, int maxRooms,
             // random among ALL of them (see generate.OneOffGenerator#planPlacements's own doc).
             // Absent (the default, and every pre-existing recipe on disk) keeps the old random
             // behavior unchanged.
-            Codec.STRING.optionalFieldOf("entrance_name").forGetter(WyrldRecipe::entranceName)
+            Codec.STRING.optionalFieldOf("entrance_name").forGetter(WyrldRecipe::entranceName),
+            // Added 2026-11-11 alongside WyrldPrintType#TUTORIAL (see its own doc) -- when true,
+            // the anchor is resolved as "whichever saved TUTORIAL print is newest" instead of
+            // entranceName's fixed-name pin into the ENTRANCE pool. Mutually exclusive with
+            // entranceName in practice (a recipe uses one mechanism or the other), but nothing
+            // enforces that at the type level -- generate.OneOffGenerator just checks this flag
+            // first and only falls back to entranceName/ENTRANCE when it's false.
+            Codec.BOOL.optionalFieldOf("use_latest_tutorial_print", false).forGetter(WyrldRecipe::useLatestTutorialPrint),
+            // Added 2026-11-11 -- see generate.OneOffGenerator#generateTunnel's own doc. When true,
+            // minRooms/maxRooms is read as a single EXACT room count (the two must be equal by
+            // construction -- a Tunnel's room count is a deliberate, specific number, never a
+            // random range) rather than the usual min/max growth target.
+            Codec.BOOL.optionalFieldOf("tunnel", false).forGetter(WyrldRecipe::tunnel)
     ).apply(i, WyrldRecipe::new));
 
     public static WyrldRecipe empty(String name, int minRooms, int maxRooms) {
-        return new WyrldRecipe(name, minRooms, maxRooms, List.of(), List.of(), List.of(), List.of(), List.of(), Optional.empty(), Optional.empty());
+        return new WyrldRecipe(name, minRooms, maxRooms, List.of(), List.of(), List.of(), List.of(), List.of(), Optional.empty(), Optional.empty(), false, false);
     }
 
     public List<WyrldLootEntry> lootPool(LootTier tier) {
@@ -57,26 +70,34 @@ public record WyrldRecipe(String name, int minRooms, int maxRooms,
 
     public WyrldRecipe withLootAdded(LootTier tier, WyrldLootEntry entry) {
         return switch (tier) {
-            case COMMON -> new WyrldRecipe(name, minRooms, maxRooms, appended(commonLoot, entry), rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName);
-            case RARE -> new WyrldRecipe(name, minRooms, maxRooms, commonLoot, appended(rareLoot, entry), epicLoot, enemyPool, friendlyPool, questId, entranceName);
-            case EPIC -> new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, appended(epicLoot, entry), enemyPool, friendlyPool, questId, entranceName);
+            case COMMON -> new WyrldRecipe(name, minRooms, maxRooms, appended(commonLoot, entry), rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel);
+            case RARE -> new WyrldRecipe(name, minRooms, maxRooms, commonLoot, appended(rareLoot, entry), epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel);
+            case EPIC -> new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, appended(epicLoot, entry), enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel);
         };
     }
 
     public WyrldRecipe withEnemyAdded(WyrldEntityEntry entry) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, appended(enemyPool, entry), friendlyPool, questId, entranceName);
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, appended(enemyPool, entry), friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel);
     }
 
     public WyrldRecipe withFriendlyAdded(WyrldEntityEntry entry) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, appended(friendlyPool, entry), questId, entranceName);
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, appended(friendlyPool, entry), questId, entranceName, useLatestTutorialPrint, tunnel);
     }
 
     public WyrldRecipe withQuestId(String newQuestId) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, Optional.of(newQuestId), entranceName);
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, Optional.of(newQuestId), entranceName, useLatestTutorialPrint, tunnel);
     }
 
     public WyrldRecipe withEntranceName(String newEntranceName) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, Optional.of(newEntranceName));
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, Optional.of(newEntranceName), useLatestTutorialPrint, tunnel);
+    }
+
+    public WyrldRecipe withUseLatestTutorialPrint(boolean newUseLatestTutorialPrint) {
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, newUseLatestTutorialPrint, tunnel);
+    }
+
+    public WyrldRecipe withTunnel(boolean newTunnel) {
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, newTunnel);
     }
 
     private static <T> List<T> appended(List<T> list, T entry) {

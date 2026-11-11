@@ -41,13 +41,18 @@ public final class WyrldPrintStorage {
     }
 
     public void save(WyrldPrintRecord record) {
-        deleteExisting(record.name());
-        Path dir = root.resolve(sanitize(record.type().name()));
+        // Always stamped here, regardless of what the caller passed in -- the one guarantee
+        // "latest TUTORIAL print" generation (see WyrldPrintType's own TUTORIAL doc) needs is that
+        // savedAt reflects real save order, which only holds if no caller can accidentally skip or
+        // fake it.
+        WyrldPrintRecord stamped = record.withSavedAt(System.currentTimeMillis());
+        deleteExisting(stamped.name());
+        Path dir = root.resolve(sanitize(stamped.type().name()));
         try {
             Files.createDirectories(dir);
-            Path file = dir.resolve(fileNameFor(record));
-            JsonElement json = WyrldPrintRecord.CODEC.encodeStart(JsonOps.INSTANCE, record)
-                    .getOrThrow(msg -> new IOException("Failed to encode WyrldPrint '" + record.name() + "': " + msg));
+            Path file = dir.resolve(fileNameFor(stamped));
+            JsonElement json = WyrldPrintRecord.CODEC.encodeStart(JsonOps.INSTANCE, stamped)
+                    .getOrThrow(msg -> new IOException("Failed to encode WyrldPrint '" + stamped.name() + "': " + msg));
             Files.writeString(file, GSON.toJson(json), StandardCharsets.UTF_8);
         } catch (IOException e) {
             throw new RuntimeException("Failed to save WyrldPrint '" + record.name() + "'", e);
@@ -68,6 +73,15 @@ public final class WyrldPrintStorage {
         List<WyrldPrintRecord> records = new ArrayList<>();
         forEachRecord((path, record) -> records.add(record));
         return records;
+    }
+
+    /** The most recently-saved record of {@code type}, by {@link WyrldPrintRecord#savedAt} -- the
+     *  real lookup behind "a TUTORIAL recipe always uses whichever TUTORIAL print was captured
+     *  last," no name parsing involved. Empty if none of that type exist yet. */
+    public Optional<WyrldPrintRecord> loadLatestOfType(WyrldPrintType type) {
+        return listAll().stream()
+                .filter(r -> r.type() == type)
+                .max(java.util.Comparator.comparingLong(WyrldPrintRecord::savedAt));
     }
 
     private String fileNameFor(WyrldPrintRecord record) {

@@ -48,6 +48,13 @@ public final class WyrldManager {
     private static final int CLEAR_ABOVE_BASELINE = 256;
 
     public static WyrldInstanceRecord createWyrld(MinecraftServer server, int innerWidth, int innerLength) {
+        return createWyrld(server, innerWidth, innerLength, WyrldLifecycle.INSTANCED);
+    }
+
+    /** {@code lifecycle} added 2026-11-11 for Tunnels -- see {@link WyrldLifecycle}'s own doc. A
+     *  {@code PUBLIC} instance is otherwise created exactly the same way; the only difference is
+     *  what {@link #tick} does with it afterward. */
+    public static WyrldInstanceRecord createWyrld(MinecraftServer server, int innerWidth, int innerLength, WyrldLifecycle lifecycle) {
         WyrldSpaceData data = WyrldSpaceData.get(server);
         WyrldSpaceAllocator allocator = data.allocator();
         WyrldSpaceAllocator.Reservation reservation = allocator.allocate(innerWidth, innerLength)
@@ -57,10 +64,10 @@ public final class WyrldManager {
 
         long gameTime = server.overworld().getGameTime();
         WyrldInstanceRecord instance = new WyrldInstanceRecord(UUID.randomUUID(), reservation.full(), reservation.inner(),
-                BASELINE_Y, WyrldState.ACTIVE, gameTime);
+                BASELINE_Y, WyrldState.ACTIVE, gameTime, lifecycle, java.util.List.of(), Optional.empty(), Optional.empty());
         data.putInstance(instance);
-        TinyWyrldsMod.LOGGER.info("Created Wyrld {} ({}x{} inner, {}x{} padded)", instance.id(),
-                innerWidth, innerLength, reservation.full().width(), reservation.full().length());
+        TinyWyrldsMod.LOGGER.info("Created Wyrld {} ({}x{} inner, {}x{} padded, {})", instance.id(),
+                innerWidth, innerLength, reservation.full().width(), reservation.full().length(), lifecycle);
         return instance;
     }
 
@@ -141,6 +148,35 @@ public final class WyrldManager {
     public record LeaveDestination(ServerLevel level, BlockPos pos) {
     }
 
+    /** Same as {@link #resolveLeaveDestination}, but checks {@code wyrldId}'s own {@link
+     *  WyrldInstanceRecord#exitBindings} for {@code exitPortalPos} first -- a Tunnel's exit portal
+     *  is statically bound to its own real-world door at generation time (see {@code
+     *  generate.OneOffGenerator#generateTunnel}), so it must always lead back there regardless of
+     *  which of the Tunnel's two doors this particular player actually entered through. Explicit
+     *  user spec: "the player could turn around mid way through the tunnel and come back out the
+     *  same entrance they entered" -- entry-history tracking alone would get that wrong. Falls back
+     *  to {@link #resolveLeaveDestination} unchanged for every other exit (not part of any bound
+     *  pairing) -- that fallback is kept exactly as-is, explicit user instruction, for an admin
+     *  teleported into the craft zone, a debug command, or anything else with no real-world door of
+     *  its own to bind to. */
+    public static LeaveDestination resolveExitDestination(ServerPlayer player, UUID wyrldId, BlockPos exitPortalPos) {
+        MinecraftServer server = player.level().getServer();
+        Optional<WyrldInstanceRecord> maybeInstance = WyrldSpaceData.get(server).getInstance(wyrldId);
+        if (maybeInstance.isPresent()) {
+            Optional<net.minecraft.core.GlobalPos> bound = maybeInstance.get().exitDestinationFor(exitPortalPos);
+            if (bound.isPresent()) {
+                net.minecraft.core.GlobalPos destination = bound.get();
+                ServerLevel destLevel = server.getLevel(destination.dimension());
+                if (destLevel != null) {
+                    PlayerWyrldData current = player.getData(ModAttachments.WYRLD_DATA);
+                    player.setData(ModAttachments.WYRLD_DATA, current.leavingWyrld());
+                    return new LeaveDestination(destLevel, destination.pos());
+                }
+            }
+        }
+        return resolveLeaveDestination(player);
+    }
+
     /** Teleports {@code player} back to wherever they entered their current Wyrld from -- kept
      *  for {@code /tinywyrlds leave} and the (deliberately still-registered, just no longer
      *  auto-granted on entry) {@code wyrldprint.entrance.WyrldReturnItem}. The real player-facing
@@ -172,6 +208,13 @@ public final class WyrldManager {
         long now = server.overworld().getGameTime();
 
         for (WyrldInstanceRecord instance : data.allInstances().values()) {
+            // PUBLIC instances (Tunnels -- see WyrldLifecycle's own doc) are meant to just always
+            // exist, the same way a real-world passage doesn't disappear when nobody's using it --
+            // explicit user spec ("permanent"). Exempt from the whole idle sweep, not just given a
+            // longer timer.
+            if (instance.lifecycle() == WyrldLifecycle.PUBLIC) {
+                continue;
+            }
             if (occupiedWyrlds.contains(instance.id())) {
                 if (instance.state() != WyrldState.ACTIVE || instance.lastActiveGameTime() != now) {
                     data.putInstance(instance.withState(WyrldState.ACTIVE, now));

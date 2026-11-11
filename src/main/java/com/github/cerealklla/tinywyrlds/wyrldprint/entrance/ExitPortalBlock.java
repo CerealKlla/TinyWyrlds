@@ -107,7 +107,13 @@ public class ExitPortalBlock extends Block implements Portal {
         if (!(entity instanceof ServerPlayer player)) {
             return null;
         }
-        WyrldManager.LeaveDestination destination = WyrldManager.resolveLeaveDestination(player);
+        // A Tunnel's own exit is statically bound to its real-world door (see WyrldManager
+        // #resolveExitDestination's own doc) -- falls straight through to the original
+        // entry-history-based resolution for any exit that isn't part of a bound pairing.
+        WyrldManager.LeaveDestination destination = player.getData(
+                com.github.cerealklla.tinywyrlds.registration.ModAttachments.WYRLD_DATA).currentWyrldId()
+                .map(wyrldId -> WyrldManager.resolveExitDestination(player, wyrldId, portalEntryPos))
+                .orElseGet(() -> WyrldManager.resolveLeaveDestination(player));
         if (destination == null) {
             return null;
         }

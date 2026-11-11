@@ -1,0 +1,20 @@
+{
+  "textures": {
+    "particle": "minecraft:block/oak_door_bottom",
+    "texture": "minecraft:block/oak_door_bottom"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 7],
+      "to": [16, 16, 9],
+      "faces": {
+        "down": { "texture": "#texture" },
+        "up": { "texture": "#texture" },
+        "north": { "texture": "#texture" },
+        "south": { "texture": "#texture" },
+        "west": { "texture": "#texture" },
+        "east": { "texture": "#texture" }
+      }
+    }
+  ]
+}

@@ -172,7 +172,7 @@ public final class DebugCommands {
         try {
             type = WyrldPrintType.valueOf(typeArg.toUpperCase(java.util.Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            source.sendFailure(Component.literal("Type must be 'room', 'connector', or 'entrance'."));
+            source.sendFailure(Component.literal("Type must be 'room', 'connector', 'entrance', or 'tutorial'."));
             return 0;
         }
         String author = source.getEntity() instanceof ServerPlayer player ? player.getName().getString() : "Generator";

@@ -21,11 +21,24 @@ import com.mojang.serialization.Codec;
  * More than one marker is expected and fine -- "there is only 1" is about the ENTRANCE WyrldPrint
  * itself, not the spawn markers inside it ("if a party arrives they all need their own spawn
  * point," clarified same day).
+ *
+ * <p>{@code TUTORIAL} added 2026-11-11, explicit user spec: a dedicated anchor type for the
+ * Arryval tutorial entrance room specifically, authored/validated identically to {@code ENTRANCE}
+ * (same minimum-connector-point rule, same required Spawn Location marker -- see {@code
+ * WyrldPrintCapture}), but resolved at generation time by {@code generate.OneOffGenerator} as
+ * "whichever saved TUTORIAL print has the newest {@code WyrldPrintRecord#savedAt}," never by a
+ * pinned name. Replaces the previous "pin a WyrldRecipe's own {@code entranceName} to one fixed
+ * ENTRANCE by name" approach for the tutorial specifically -- that required a new {@code
+ * /tinywyrlds recipe setentrance} admin command every time the room was re-captured, exactly the
+ * one-time-admin-setup pattern this project's own convention says never to lean on. Re-saving
+ * under type {@code TUTORIAL} (any name) always wins automatically on the very next player login,
+ * with zero admin action.
  */
 public enum WyrldPrintType {
     ROOM,
     CONNECTOR,
-    ENTRANCE;
+    ENTRANCE,
+    TUTORIAL;
 
     public static final Codec<WyrldPrintType> CODEC = Codec.STRING.xmap(
             s -> WyrldPrintType.valueOf(s.toUpperCase(Locale.ROOT)),
@@ -34,5 +47,13 @@ public enum WyrldPrintType {
 
     public int minimumConnectorPoints() {
         return this == CONNECTOR ? 2 : 1;
+    }
+
+    /** {@code ENTRANCE} and {@code TUTORIAL} are both "the guaranteed first/anchor piece of a
+     *  generated layout, never placed anywhere else, never counted toward min/maxRooms" -- every
+     *  generation-time special case that currently reads {@code == ENTRANCE} needs to read this
+     *  instead so a TUTORIAL anchor gets identical treatment. */
+    public boolean isAnchor() {
+        return this == ENTRANCE || this == TUTORIAL;
     }
 }
