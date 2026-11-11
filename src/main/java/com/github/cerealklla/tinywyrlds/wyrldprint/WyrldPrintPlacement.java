@@ -30,16 +30,32 @@ public final class WyrldPrintPlacement {
      *  per-player -- the crafting zone itself is one shared space, same as everything else here. */
     private static String loadedName;
 
+    /** The type of whatever saved WyrldPrint the crafting zone's current content corresponds to, if
+     *  any -- real bug, 2026-11-11: the Save screen's Type toggle always started at ROOM regardless
+     *  of what was actually loaded, so re-saving a loaded CONNECTOR/ENTRANCE/TUTORIAL print without
+     *  remembering to cycle it back silently overwrote its real type. Tracked the same way {@link
+     *  #loadedName} already is, for the same reason. */
+    private static WyrldPrintType loadedType;
+
     public static java.util.Optional<String> loadedName() {
         return java.util.Optional.ofNullable(loadedName);
+    }
+
+    public static java.util.Optional<WyrldPrintType> loadedType() {
+        return java.util.Optional.ofNullable(loadedType);
     }
 
     public static void setLoadedName(String name) {
         loadedName = name;
     }
 
+    public static void setLoadedType(WyrldPrintType type) {
+        loadedType = type;
+    }
+
     public static void clearCraftingZone(ServerLevel level) {
         loadedName = null;
+        loadedType = null;
         int minY = WyrldManager.BASELINE_Y - WyrldPrintArea.CAPTURE_BELOW_BASELINE;
         int maxY = WyrldManager.BASELINE_Y + WyrldPrintArea.CAPTURE_ABOVE_BASELINE;
         for (int x = WyrldPrintArea.CRAFT_MIN_X; x < WyrldPrintArea.CRAFT_MAX_X; x++) {
@@ -57,6 +73,7 @@ public final class WyrldPrintPlacement {
     public static void loadIntoCraftingZone(ServerLevel level, WyrldPrintRecord record) {
         clearCraftingZone(level);
         loadedName = record.name();
+        loadedType = record.type();
         // Anchored so the content's own far (highest-relForward) edge lands flush against the
         // boundary, i.e. right next to the cobblestone staging strip, instead of clear across the
         // void at the crafting zone's far west edge.

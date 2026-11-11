@@ -162,6 +162,7 @@ public class TinyWyrldsMod {
                     }
                     WyrldPrintStorage.get().save(result.record().get().withTags(payload.tags()));
                     WyrldPrintPlacement.setLoadedName(payload.name());
+                    WyrldPrintPlacement.setLoadedType(type);
                     player.sendSystemMessage(Component.literal("Saved " + type.name() + " WyrldPrint '" + payload.name() + "'."));
                     WyrldWorkbenchBlock.sendScreen(player, payload.workbenchPos());
                 }));

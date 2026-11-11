@@ -22,7 +22,11 @@ import net.minecraft.resources.Identifier;
  *
  * <p>{@code loadedName} is the crafting zone's current {@code WyrldPrintPlacement#loadedName()},
  * empty string standing in for "none" (no nullable-string codec needed) -- the Save screen uses it
- * to default its name field, per the 2026-10-15 request described there.
+ * to default its name field, per the 2026-10-15 request described there. {@code loadedType} is the
+ * same idea for {@code WyrldPrintPlacement#loadedType()} (lowercase {@code WyrldPrintType#name()},
+ * empty for "none") -- added 2026-11-11, real bug: the Save screen's Type toggle always started at
+ * ROOM regardless of what was actually loaded, so re-saving a loaded CONNECTOR/ENTRANCE/TUTORIAL
+ * print without remembering to cycle it back silently overwrote its real type.
  *
  * <p>{@code approvedTags}/{@code pendingTags}/{@code canManageTags} added 2026-11-11 (the Tag
  * system) -- {@code approvedTags} feeds the Save screen's tag picker, {@code pendingTags} feeds the
@@ -38,6 +42,7 @@ public record OpenWyrldWorkbenchScreenPayload(
         List<String> savedNames,
         List<String> savedTypes,
         String loadedName,
+        String loadedType,
         List<String> approvedTags,
         List<String> pendingTags,
         boolean canManageTags)
@@ -51,6 +56,7 @@ public record OpenWyrldWorkbenchScreenPayload(
             ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::savedNames,
             ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::savedTypes,
             ByteBufCodecs.STRING_UTF8, OpenWyrldWorkbenchScreenPayload::loadedName,
+            ByteBufCodecs.STRING_UTF8, OpenWyrldWorkbenchScreenPayload::loadedType,
             ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::approvedTags,
             ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::pendingTags,
             ByteBufCodecs.BOOL, OpenWyrldWorkbenchScreenPayload::canManageTags,

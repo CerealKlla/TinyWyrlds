@@ -75,7 +75,9 @@ public class WyrldWorkbenchBlock extends HorizontalDirectionalBlock {
         List<String> names = saved.stream().map(WyrldPrintRecord::name).toList();
         List<String> types = saved.stream().map(r -> r.type().name()).toList();
         PacketDistributor.sendToPlayer(player, new OpenWyrldWorkbenchScreenPayload(pos, names, types,
-                WyrldPrintPlacement.loadedName().orElse(""), Nuclyus.approvedTags(), Nuclyus.pendingTags(),
+                WyrldPrintPlacement.loadedName().orElse(""),
+                WyrldPrintPlacement.loadedType().map(t -> t.name().toLowerCase(java.util.Locale.ROOT)).orElse(""),
+                Nuclyus.approvedTags(), Nuclyus.pendingTags(),
                 Commands.hasPermission(Commands.LEVEL_GAMEMASTERS).test(player.createCommandSourceStack())));
     }
 }

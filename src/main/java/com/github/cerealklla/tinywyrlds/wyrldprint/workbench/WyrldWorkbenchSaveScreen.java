@@ -42,6 +42,16 @@ public class WyrldWorkbenchSaveScreen extends Screen {
         this.workbenchPos = parent.data().workbenchPos();
         this.defaultName = parent.data().loadedName();
         this.approvedTags = parent.data().approvedTags();
+        // Real bug, 2026-11-11: this used to always start at ROOM (index 0) regardless of what was
+        // actually loaded, so re-saving a loaded CONNECTOR/ENTRANCE/TUTORIAL print without
+        // remembering to cycle the toggle back silently overwrote its real type.
+        String loadedType = parent.data().loadedType();
+        if (!loadedType.isEmpty()) {
+            int index = java.util.Arrays.asList(TYPES).indexOf(loadedType);
+            if (index >= 0) {
+                this.typeIndex = index;
+            }
+        }
     }
 
     @Override
