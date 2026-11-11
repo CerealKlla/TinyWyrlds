@@ -2,12 +2,14 @@ package com.github.cerealklla.tinywyrlds.wyrldprint.workbench;
 
 import java.util.List;
 
+import com.github.cerealklla.nuclyus.api.Nuclyus;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintPlacement;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintRecord;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintStorage;
 
 import com.mojang.serialization.MapCodec;
 
+import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
@@ -73,6 +75,7 @@ public class WyrldWorkbenchBlock extends HorizontalDirectionalBlock {
         List<String> names = saved.stream().map(WyrldPrintRecord::name).toList();
         List<String> types = saved.stream().map(r -> r.type().name()).toList();
         PacketDistributor.sendToPlayer(player, new OpenWyrldWorkbenchScreenPayload(pos, names, types,
-                WyrldPrintPlacement.loadedName().orElse("")));
+                WyrldPrintPlacement.loadedName().orElse(""), Nuclyus.approvedTags(), Nuclyus.pendingTags(),
+                Commands.hasPermission(Commands.LEVEL_GAMEMASTERS).test(player.createCommandSourceStack())));
     }
 }

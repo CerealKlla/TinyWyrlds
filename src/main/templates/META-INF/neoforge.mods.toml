@@ -57,6 +57,16 @@ creation or destruction is permitted inside a Wyrld except non-solid blocks (pla
     ordering="NONE"
     side="BOTH"
 
+# Optional soft dependency, added 2026-11-11 (the Tag system) -- notifies a player via mail once an
+# admin approves/corrects a custom tag they requested; the mod works standalone without it (the
+# requester just never gets a letter).
+[[dependencies.${mod_id}]]
+    modId="coryspondance"
+    type="optional"
+    reason="Notifies a player when a WyrldPrint tag they requested is approved."
+    ordering="NONE"
+    side="BOTH"
+
 # Nuclyus is the suite's foundation mod -- required (not optional) for every mod, starting with the
 # cross-mod menu-contribution system (see Nuclyus' own CLAUDE.md).
 [[dependencies.${mod_id}]]

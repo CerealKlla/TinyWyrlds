@@ -23,12 +23,24 @@ import net.minecraft.resources.Identifier;
  * <p>{@code loadedName} is the crafting zone's current {@code WyrldPrintPlacement#loadedName()},
  * empty string standing in for "none" (no nullable-string codec needed) -- the Save screen uses it
  * to default its name field, per the 2026-10-15 request described there.
+ *
+ * <p>{@code approvedTags}/{@code pendingTags}/{@code canManageTags} added 2026-11-11 (the Tag
+ * system) -- {@code approvedTags} feeds the Save screen's tag picker, {@code pendingTags} feeds the
+ * "Manage Tags... (N pending)" button's count and the review screen's own row list,
+ * {@code canManageTags} is resolved server-side from the opening player's real permission level
+ * ({@code Commands.hasPermission(Commands.LEVEL_GAMEMASTERS).test(player.createCommandSourceStack())},
+ * the same predicate every gated command's own {@code .requires(...)} already uses) -- never
+ * trust a client-only gate for
+ * anything that mutates shared data; this just controls whether the button even renders.
  */
 public record OpenWyrldWorkbenchScreenPayload(
         BlockPos workbenchPos,
         List<String> savedNames,
         List<String> savedTypes,
-        String loadedName)
+        String loadedName,
+        List<String> approvedTags,
+        List<String> pendingTags,
+        boolean canManageTags)
         implements CustomPacketPayload {
 
     public static final Type<OpenWyrldWorkbenchScreenPayload> TYPE =
@@ -39,6 +51,9 @@ public record OpenWyrldWorkbenchScreenPayload(
             ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::savedNames,
             ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::savedTypes,
             ByteBufCodecs.STRING_UTF8, OpenWyrldWorkbenchScreenPayload::loadedName,
+            ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::approvedTags,
+            ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::pendingTags,
+            ByteBufCodecs.BOOL, OpenWyrldWorkbenchScreenPayload::canManageTags,
             OpenWyrldWorkbenchScreenPayload::new);
 
     @Override

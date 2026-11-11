@@ -147,6 +147,18 @@ public final class DebugCommands {
                                                 .executes(ctx -> setRecipeEntrance(ctx.getSource(),
                                                         StringArgumentType.getString(ctx, "name"),
                                                         StringArgumentType.getString(ctx, "entranceName"))))))
+                        .then(Commands.literal("addtag")
+                                .then(Commands.argument("name", StringArgumentType.word())
+                                        .then(Commands.argument("tag", StringArgumentType.greedyString())
+                                                .executes(ctx -> addRecipeTag(ctx.getSource(),
+                                                        StringArgumentType.getString(ctx, "name"),
+                                                        StringArgumentType.getString(ctx, "tag"))))))
+                        .then(Commands.literal("removetag")
+                                .then(Commands.argument("name", StringArgumentType.word())
+                                        .then(Commands.argument("tag", StringArgumentType.greedyString())
+                                                .executes(ctx -> removeRecipeTag(ctx.getSource(),
+                                                        StringArgumentType.getString(ctx, "name"),
+                                                        StringArgumentType.getString(ctx, "tag"))))))
                         .then(Commands.literal("list")
                                 .executes(ctx -> listRecipes(ctx.getSource()))))
                 .then(Commands.literal("generaterecipe")
@@ -444,6 +456,30 @@ public final class DebugCommands {
         }
         WyrldRecipeStorage.get().save(recipe.withEntranceName(entranceName));
         source.sendSuccess(() -> Component.literal("Pinned " + name + "'s entrance to '" + entranceName + "'."), false);
+        return 1;
+    }
+
+    /** The real integration point the Tag system's own spec asks for -- tags live on the recipe,
+     *  same shape as {@code entranceName}/loot pools, not a one-off generate-command argument. */
+    private static int addRecipeTag(CommandSourceStack source, String name, String tag) {
+        WyrldRecipe recipe = WyrldRecipeStorage.get().load(name).orElse(null);
+        if (recipe == null) {
+            source.sendFailure(Component.literal("No WyrldRecipe named '" + name + "'."));
+            return 0;
+        }
+        WyrldRecipeStorage.get().save(recipe.withTagsAdded(tag));
+        source.sendSuccess(() -> Component.literal("Added tag '" + tag + "' to " + name + "."), false);
+        return 1;
+    }
+
+    private static int removeRecipeTag(CommandSourceStack source, String name, String tag) {
+        WyrldRecipe recipe = WyrldRecipeStorage.get().load(name).orElse(null);
+        if (recipe == null) {
+            source.sendFailure(Component.literal("No WyrldRecipe named '" + name + "'."));
+            return 0;
+        }
+        WyrldRecipeStorage.get().save(recipe.withTagRemoved(tag));
+        source.sendSuccess(() -> Component.literal("Removed tag '" + tag + "' from " + name + "."), false);
         return 1;
     }
 

@@ -21,7 +21,7 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 public record WyrldPrintRecord(int templateVersion, String name, String author, WyrldPrintType type,
                                 int forwardSize, int lateralSize, int minY, int maxY,
                                 List<WyrldPrintCell> cells, List<WyrldPrintPoint> points,
-                                List<WyrldPrintSpawn> spawnPoints, long savedAt) {
+                                List<WyrldPrintSpawn> spawnPoints, long savedAt, List<String> tags) {
 
     public static final int CURRENT_TEMPLATE_VERSION = 1;
 
@@ -37,11 +37,22 @@ public record WyrldPrintRecord(int templateVersion, String name, String author, 
             WyrldPrintCell.CODEC.listOf().fieldOf("cells").forGetter(WyrldPrintRecord::cells),
             WyrldPrintPoint.CODEC.listOf().optionalFieldOf("points", List.of()).forGetter(WyrldPrintRecord::points),
             WyrldPrintSpawn.CODEC.listOf().optionalFieldOf("spawn_points", List.of()).forGetter(WyrldPrintRecord::spawnPoints),
-            Codec.LONG.optionalFieldOf("saved_at", 0L).forGetter(WyrldPrintRecord::savedAt)
+            Codec.LONG.optionalFieldOf("saved_at", 0L).forGetter(WyrldPrintRecord::savedAt),
+            // Added 2026-11-11 (the Tag system, see wyrldprint.tag.TagApprovalRelay/Nuclyus#approveTag)
+            // -- free-text descriptors (e.g. "Orcish", "Dark"), used by generate.OneOffGenerator to
+            // filter which prints a tag-constrained recipe can ever pick. Absent/empty is the only
+            // state every pre-existing saved print has, and must mean "never matches a tag-filtered
+            // query" -- see OneOffGenerator#matchesTags' own doc for why that's not the same as "no tags = match anything."
+            Codec.STRING.listOf().optionalFieldOf("tags", List.of()).forGetter(WyrldPrintRecord::tags)
     ).apply(i, WyrldPrintRecord::new));
 
     public WyrldPrintRecord withSavedAt(long newSavedAt) {
         return new WyrldPrintRecord(templateVersion, name, author, type, forwardSize, lateralSize, minY, maxY,
-                cells, points, spawnPoints, newSavedAt);
+                cells, points, spawnPoints, newSavedAt, tags);
+    }
+
+    public WyrldPrintRecord withTags(List<String> newTags) {
+        return new WyrldPrintRecord(templateVersion, name, author, type, forwardSize, lateralSize, minY, maxY,
+                cells, points, spawnPoints, savedAt, newTags);
     }
 }

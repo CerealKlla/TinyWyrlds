@@ -24,7 +24,7 @@ public record WyrldRecipe(String name, int minRooms, int maxRooms,
                            List<WyrldLootEntry> commonLoot, List<WyrldLootEntry> rareLoot, List<WyrldLootEntry> epicLoot,
                            List<WyrldEntityEntry> enemyPool, List<WyrldEntityEntry> friendlyPool,
                            Optional<String> questId, Optional<String> entranceName, boolean useLatestTutorialPrint,
-                           boolean tunnel) {
+                           boolean tunnel, List<String> tags) {
 
     public static final Codec<WyrldRecipe> CODEC = RecordCodecBuilder.create(i -> i.group(
             Codec.STRING.fieldOf("name").forGetter(WyrldRecipe::name),
@@ -53,11 +53,15 @@ public record WyrldRecipe(String name, int minRooms, int maxRooms,
             // minRooms/maxRooms is read as a single EXACT room count (the two must be equal by
             // construction -- a Tunnel's room count is a deliberate, specific number, never a
             // random range) rather than the usual min/max growth target.
-            Codec.BOOL.optionalFieldOf("tunnel", false).forGetter(WyrldRecipe::tunnel)
+            Codec.BOOL.optionalFieldOf("tunnel", false).forGetter(WyrldRecipe::tunnel),
+            // Added 2026-11-11, the Tag system -- see generate.OneOffGenerator#matchesTags' own doc.
+            // Empty (the default, and every pre-existing recipe on disk) keeps the old untargeted
+            // random-pick-among-type behavior exactly as it was.
+            Codec.STRING.listOf().optionalFieldOf("tags", List.of()).forGetter(WyrldRecipe::tags)
     ).apply(i, WyrldRecipe::new));
 
     public static WyrldRecipe empty(String name, int minRooms, int maxRooms) {
-        return new WyrldRecipe(name, minRooms, maxRooms, List.of(), List.of(), List.of(), List.of(), List.of(), Optional.empty(), Optional.empty(), false, false);
+        return new WyrldRecipe(name, minRooms, maxRooms, List.of(), List.of(), List.of(), List.of(), List.of(), Optional.empty(), Optional.empty(), false, false, List.of());
     }
 
     public List<WyrldLootEntry> lootPool(LootTier tier) {
@@ -70,34 +74,44 @@ public record WyrldRecipe(String name, int minRooms, int maxRooms,
 
     public WyrldRecipe withLootAdded(LootTier tier, WyrldLootEntry entry) {
         return switch (tier) {
-            case COMMON -> new WyrldRecipe(name, minRooms, maxRooms, appended(commonLoot, entry), rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel);
-            case RARE -> new WyrldRecipe(name, minRooms, maxRooms, commonLoot, appended(rareLoot, entry), epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel);
-            case EPIC -> new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, appended(epicLoot, entry), enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel);
+            case COMMON -> new WyrldRecipe(name, minRooms, maxRooms, appended(commonLoot, entry), rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel, tags);
+            case RARE -> new WyrldRecipe(name, minRooms, maxRooms, commonLoot, appended(rareLoot, entry), epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel, tags);
+            case EPIC -> new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, appended(epicLoot, entry), enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel, tags);
         };
     }
 
     public WyrldRecipe withEnemyAdded(WyrldEntityEntry entry) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, appended(enemyPool, entry), friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel);
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, appended(enemyPool, entry), friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel, tags);
     }
 
     public WyrldRecipe withFriendlyAdded(WyrldEntityEntry entry) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, appended(friendlyPool, entry), questId, entranceName, useLatestTutorialPrint, tunnel);
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, appended(friendlyPool, entry), questId, entranceName, useLatestTutorialPrint, tunnel, tags);
     }
 
     public WyrldRecipe withQuestId(String newQuestId) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, Optional.of(newQuestId), entranceName, useLatestTutorialPrint, tunnel);
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, Optional.of(newQuestId), entranceName, useLatestTutorialPrint, tunnel, tags);
     }
 
     public WyrldRecipe withEntranceName(String newEntranceName) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, Optional.of(newEntranceName), useLatestTutorialPrint, tunnel);
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, Optional.of(newEntranceName), useLatestTutorialPrint, tunnel, tags);
     }
 
     public WyrldRecipe withUseLatestTutorialPrint(boolean newUseLatestTutorialPrint) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, newUseLatestTutorialPrint, tunnel);
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, newUseLatestTutorialPrint, tunnel, tags);
     }
 
     public WyrldRecipe withTunnel(boolean newTunnel) {
-        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, newTunnel);
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, newTunnel, tags);
+    }
+
+    public WyrldRecipe withTagsAdded(String tag) {
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel, appended(tags, tag));
+    }
+
+    public WyrldRecipe withTagRemoved(String tag) {
+        List<String> without = new java.util.ArrayList<>(tags);
+        without.remove(tag);
+        return new WyrldRecipe(name, minRooms, maxRooms, commonLoot, rareLoot, epicLoot, enemyPool, friendlyPool, questId, entranceName, useLatestTutorialPrint, tunnel, List.copyOf(without));
     }
 
     private static <T> List<T> appended(List<T> list, T entry) {

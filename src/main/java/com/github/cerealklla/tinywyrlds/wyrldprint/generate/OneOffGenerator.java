@@ -120,7 +120,7 @@ public final class OneOffGenerator {
 
     private static GenerateResult generate(MinecraftServer server, int minRooms, int maxRooms, WyrldRecipe recipe) {
         PlanResult plan = planPlacements(minRooms, maxRooms, recipe == null ? Optional.empty() : recipe.entranceName(),
-                recipe != null && recipe.useLatestTutorialPrint());
+                recipe != null && recipe.useLatestTutorialPrint(), recipe == null ? List.of() : recipe.tags());
         if (plan == null) {
             return null;
         }
@@ -199,22 +199,37 @@ public final class OneOffGenerator {
      *  investigate. @return each placed piece as {@code "<type>:<name>"}, or an empty list if no
      *  ROOM/ENTRANCE WyrldPrints are saved at all. */
     public static List<String> planOnceForDebug(int minRooms, int maxRooms) {
-        PlanResult plan = planPlacements(minRooms, maxRooms, Optional.empty(), false);
+        PlanResult plan = planPlacements(minRooms, maxRooms, Optional.empty(), false, List.of());
         if (plan == null) {
             return List.of();
         }
         return plan.placements().stream().map(p -> p.record().type() + ":" + p.record().name()).toList();
     }
 
+    /** AND semantics, confirmed with the user, 2026-11-11 (the Tag system): a Prynt only matches a
+     *  non-empty {@code requiredTags} request if it has every single one of them, not just one.
+     *  Empty {@code requiredTags} (the generator asked for nothing in particular) matches anything,
+     *  tagged or not; a non-empty request never matches an untagged Prynt, even one tag's worth --
+     *  both explicit in the user's own spec. */
+    private static boolean matchesTags(WyrldPrintRecord record, List<String> requiredTags) {
+        if (requiredTags.isEmpty()) {
+            return true;
+        }
+        if (record.tags().isEmpty()) {
+            return false;
+        }
+        return record.tags().containsAll(requiredTags);
+    }
+
     @SuppressWarnings("deprecation")
     private static PlanResult planPlacements(int minRooms, int maxRooms, Optional<String> entranceName,
-                                               boolean useLatestTutorialPrint) {
+                                               boolean useLatestTutorialPrint, List<String> requiredTags) {
         List<WyrldPrintRecord> rooms = WyrldPrintStorage.get().listAll().stream()
-                .filter(r -> r.type() == WyrldPrintType.ROOM).toList();
+                .filter(r -> r.type() == WyrldPrintType.ROOM).filter(r -> matchesTags(r, requiredTags)).toList();
         List<WyrldPrintRecord> connectors = WyrldPrintStorage.get().listAll().stream()
-                .filter(r -> r.type() == WyrldPrintType.CONNECTOR).toList();
+                .filter(r -> r.type() == WyrldPrintType.CONNECTOR).filter(r -> matchesTags(r, requiredTags)).toList();
         List<WyrldPrintRecord> allEntrances = WyrldPrintStorage.get().listAll().stream()
-                .filter(r -> r.type() == WyrldPrintType.ENTRANCE).toList();
+                .filter(r -> r.type() == WyrldPrintType.ENTRANCE).filter(r -> matchesTags(r, requiredTags)).toList();
         List<WyrldPrintRecord> entrances;
         // WyrldPrintType#TUTORIAL's own resolution -- "whichever saved TUTORIAL is newest," never
         // a pinned name -- takes priority over (and is mutually exclusive with, in practice) the

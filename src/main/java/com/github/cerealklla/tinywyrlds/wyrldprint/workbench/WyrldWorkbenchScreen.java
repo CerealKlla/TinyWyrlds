@@ -58,6 +58,15 @@ public class WyrldWorkbenchScreen extends Screen {
                 b -> Minecraft.getInstance().setScreen(new WyrldWorkbenchRegenerateScreen(this)))
                 .bounds(x, y, buttonWidth, 20).build());
         y += 32;
+        // Admin-only, added 2026-11-11 (the Tag system) -- rendered only when the server resolved
+        // this opening player as a real gamemaster, never trusted as the actual permission boundary
+        // (the handlers behind this button re-check server-side too).
+        if (data.canManageTags()) {
+            addRenderableWidget(Button.builder(Component.literal("Manage Tags... (" + data.pendingTags().size() + " pending)"),
+                    b -> Minecraft.getInstance().setScreen(new WyrldWorkbenchTagReviewScreen(this)))
+                    .bounds(x, y, buttonWidth, 20).build());
+            y += 24;
+        }
         addRenderableWidget(Button.builder(Component.literal("Close"), b -> onClose())
                 .bounds(x, y, buttonWidth, 20).build());
     }

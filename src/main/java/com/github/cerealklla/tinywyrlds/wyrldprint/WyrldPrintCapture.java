@@ -169,7 +169,7 @@ public final class WyrldPrintCapture {
 
         WyrldPrintRecord record = new WyrldPrintRecord(WyrldPrintRecord.CURRENT_TEMPLATE_VERSION, name, author, type,
                 maxX - minX + 1, maxZ - minZ + 1, boxMinY - WyrldManager.BASELINE_Y, boxMaxY - WyrldManager.BASELINE_Y,
-                cells, points, spawnPoints, 0L);
+                cells, points, spawnPoints, 0L, List.of());
         return CaptureResult.success(record);
     }
 

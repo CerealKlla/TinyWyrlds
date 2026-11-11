@@ -29,8 +29,11 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintStorage;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintType;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintValidator;
 import com.github.cerealklla.tinywyrlds.wyrldprint.generate.OneOffGenerator;
+import com.github.cerealklla.tinywyrlds.wyrldprint.tag.TagApprovalRelay;
+import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.ApproveTagPayload;
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.ClearCraftZonePayload;
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.ClientWyrldPrintRequests;
+import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.DenyTagPayload;
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.GenerateOneOffPayload;
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.LoadWyrldPrintPayload;
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.OpenWyrldWorkbenchScreenPayload;
@@ -39,6 +42,9 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.SaveWyrldPrintPaylo
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.ValidateAllWyrldPrintsPayload;
 import com.github.cerealklla.tinywyrlds.wyrldprint.workbench.WyrldWorkbenchBlock;
 
+import com.github.cerealklla.nuclyus.api.Nuclyus;
+
+import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -84,6 +90,9 @@ public class TinyWyrldsMod {
         NeoForge.EVENT_BUS.register(new com.github.cerealklla.tinywyrlds.instance.WyrldExitListener());
         NeoForge.EVENT_BUS.register(new TagInteractListener());
         NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) -> DebugCommands.register(event.getDispatcher()));
+        // The WyrldPrint Tag system's reaction to a Nuclyus-side approval -- see TagApprovalRelay's
+        // own doc for why this is a stateless singleton registered once here, not per server start.
+        Nuclyus.registerTagApprovalListener(new TagApprovalRelay());
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {
@@ -134,7 +143,7 @@ public class TinyWyrldsMod {
                     try {
                         type = WyrldPrintType.valueOf(payload.printType().toUpperCase(java.util.Locale.ROOT));
                     } catch (IllegalArgumentException e) {
-                        player.sendSystemMessage(Component.literal("Type must be 'room', 'connector', or 'entrance'."));
+                        player.sendSystemMessage(Component.literal("Type must be 'room', 'connector', 'entrance', or 'tutorial'."));
                         return;
                     }
                     WyrldPrintCapture.CaptureResult result = WyrldPrintCapture.capture(level, payload.name(), player.getName().getString(), type);
@@ -142,11 +151,43 @@ public class TinyWyrldsMod {
                         player.sendSystemMessage(Component.literal(result.error().get()));
                         return;
                     }
-                    WyrldPrintStorage.get().save(result.record().get());
+                    // Tag system, added 2026-11-11 -- any tag here Nuclyus doesn't already know as
+                    // approved lands in its pending queue immediately, requester attached, same
+                    // write as the print itself (explicit user spec: "saved immediately to the
+                    // prynt file").
+                    for (String tag : payload.tags()) {
+                        if (!Nuclyus.isTagApproved(tag)) {
+                            Nuclyus.requestCustomTag(tag, player.getUUID());
+                        }
+                    }
+                    WyrldPrintStorage.get().save(result.record().get().withTags(payload.tags()));
                     WyrldPrintPlacement.setLoadedName(payload.name());
                     player.sendSystemMessage(Component.literal("Saved " + type.name() + " WyrldPrint '" + payload.name() + "'."));
                     WyrldWorkbenchBlock.sendScreen(player, payload.workbenchPos());
                 }));
+
+        registrar.playToServer(ApproveTagPayload.TYPE, ApproveTagPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (!(context.player() instanceof ServerPlayer player) || !Commands.hasPermission(Commands.LEVEL_GAMEMASTERS).test(player.createCommandSourceStack())) {
+                        return;
+                    }
+                    int affected = (int) WyrldPrintStorage.get().listAll().stream()
+                            .filter(r -> r.tags().contains(payload.originalTag())).count();
+                    Nuclyus.approveTag(payload.originalTag(), payload.approvedTag());
+                    player.sendSystemMessage(Component.literal("Approved '" + payload.originalTag() + "' as '"
+                            + payload.approvedTag() + "' -- " + affected + " WyrldPrint(s) updated."));
+                    WyrldWorkbenchBlock.sendScreen(player, payload.workbenchPos());
+                });
+
+        registrar.playToServer(DenyTagPayload.TYPE, DenyTagPayload.STREAM_CODEC,
+                (payload, context) -> {
+                    if (!(context.player() instanceof ServerPlayer player) || !Commands.hasPermission(Commands.LEVEL_GAMEMASTERS).test(player.createCommandSourceStack())) {
+                        return;
+                    }
+                    Nuclyus.denyTag(payload.originalTag());
+                    player.sendSystemMessage(Component.literal("Denied tag request '" + payload.originalTag() + "'."));
+                    WyrldWorkbenchBlock.sendScreen(player, payload.workbenchPos());
+                });
 
         registrar.playToServer(LoadWyrldPrintPayload.TYPE, LoadWyrldPrintPayload.STREAM_CODEC,
                 (payload, context) -> withWyrldSpace(context, level -> {

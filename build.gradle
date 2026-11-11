@@ -88,6 +88,8 @@ dependencies {
     compileOnly files("../Myssions/build/libs/myssions-${myssions_version}.jar")
     compileOnly files("../Settlemynts/build/libs/settlemynts-${settlemynts_version}.jar")
     compileOnly files("../Blueprynts/build/libs/blueprynts-${blueprynts_version}.jar")
+    // Notifies a player when a tag they requested gets approved (bridge.CoryspondanceMailBridge).
+    compileOnly files("../Coryspondance/build/libs/coryspondance-${coryspondance_version}.jar")
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.7.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
