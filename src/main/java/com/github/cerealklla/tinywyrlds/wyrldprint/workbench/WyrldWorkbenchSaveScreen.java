@@ -52,6 +52,12 @@ public class WyrldWorkbenchSaveScreen extends Screen {
                 this.typeIndex = index;
             }
         }
+        // Real bug, 2026-11-11, found right after the one above: the picker had no concept of
+        // "which tags does the currently-loaded print already have," so re-saving a tagged print
+        // without re-selecting every tag by hand silently wiped them. Includes any tag the print
+        // has even if it's not currently approved (still pending review) -- that tag just has no
+        // checkbox to show it checked, but it must still survive an unrelated re-save untouched.
+        this.selectedTags.addAll(parent.data().loadedTags());
     }
 
     @Override

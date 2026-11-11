@@ -77,6 +77,7 @@ public class WyrldWorkbenchBlock extends HorizontalDirectionalBlock {
         PacketDistributor.sendToPlayer(player, new OpenWyrldWorkbenchScreenPayload(pos, names, types,
                 WyrldPrintPlacement.loadedName().orElse(""),
                 WyrldPrintPlacement.loadedType().map(t -> t.name().toLowerCase(java.util.Locale.ROOT)).orElse(""),
+                WyrldPrintPlacement.loadedTags(),
                 Nuclyus.approvedTags(), Nuclyus.pendingTags(),
                 Commands.hasPermission(Commands.LEVEL_GAMEMASTERS).test(player.createCommandSourceStack())));
     }

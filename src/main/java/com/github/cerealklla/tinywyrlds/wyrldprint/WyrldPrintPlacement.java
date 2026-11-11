@@ -37,12 +37,26 @@ public final class WyrldPrintPlacement {
      *  #loadedName} already is, for the same reason. */
     private static WyrldPrintType loadedType;
 
+    /** The tags of whatever saved WyrldPrint the crafting zone's current content corresponds to, if
+     *  any -- real bug, 2026-11-11, found right after the identical {@link #loadedType} bug: the
+     *  Save screen's tag picker had no concept of "which tags does the currently-loaded print
+     *  already have" at all, so re-saving a tagged print without re-selecting every tag by hand
+     *  silently wiped them. Tracked the same way {@link #loadedName}/{@link #loadedType} already
+     *  are. Deliberately not filtered down to just currently-approved tags -- a loaded print may
+     *  carry a tag that's still pending review, which has no checkbox in the picker at all but must
+     *  still survive an unrelated re-save untouched. */
+    private static List<String> loadedTags = List.of();
+
     public static java.util.Optional<String> loadedName() {
         return java.util.Optional.ofNullable(loadedName);
     }
 
     public static java.util.Optional<WyrldPrintType> loadedType() {
         return java.util.Optional.ofNullable(loadedType);
+    }
+
+    public static List<String> loadedTags() {
+        return loadedTags;
     }
 
     public static void setLoadedName(String name) {
@@ -53,9 +67,14 @@ public final class WyrldPrintPlacement {
         loadedType = type;
     }
 
+    public static void setLoadedTags(List<String> tags) {
+        loadedTags = tags;
+    }
+
     public static void clearCraftingZone(ServerLevel level) {
         loadedName = null;
         loadedType = null;
+        loadedTags = List.of();
         int minY = WyrldManager.BASELINE_Y - WyrldPrintArea.CAPTURE_BELOW_BASELINE;
         int maxY = WyrldManager.BASELINE_Y + WyrldPrintArea.CAPTURE_ABOVE_BASELINE;
         for (int x = WyrldPrintArea.CRAFT_MIN_X; x < WyrldPrintArea.CRAFT_MAX_X; x++) {
@@ -74,6 +93,7 @@ public final class WyrldPrintPlacement {
         clearCraftingZone(level);
         loadedName = record.name();
         loadedType = record.type();
+        loadedTags = record.tags();
         // Anchored so the content's own far (highest-relForward) edge lands flush against the
         // boundary, i.e. right next to the cobblestone staging strip, instead of clear across the
         // void at the crafting zone's far west edge.

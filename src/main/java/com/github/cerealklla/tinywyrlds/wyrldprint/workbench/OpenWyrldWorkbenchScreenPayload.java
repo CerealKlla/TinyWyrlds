@@ -36,6 +36,10 @@ import net.minecraft.resources.Identifier;
  * the same predicate every gated command's own {@code .requires(...)} already uses) -- never
  * trust a client-only gate for
  * anything that mutates shared data; this just controls whether the button even renders.
+ * {@code loadedTags} is {@code WyrldPrintPlacement#loadedTags()} -- same bug class as {@code
+ * loadedType}, found right after it: the Save screen's tag picker had no concept of "which tags
+ * does the currently-loaded print already have," so re-saving one without re-selecting every tag by
+ * hand silently wiped them.
  */
 public record OpenWyrldWorkbenchScreenPayload(
         BlockPos workbenchPos,
@@ -43,6 +47,7 @@ public record OpenWyrldWorkbenchScreenPayload(
         List<String> savedTypes,
         String loadedName,
         String loadedType,
+        List<String> loadedTags,
         List<String> approvedTags,
         List<String> pendingTags,
         boolean canManageTags)
@@ -57,6 +62,7 @@ public record OpenWyrldWorkbenchScreenPayload(
             ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::savedTypes,
             ByteBufCodecs.STRING_UTF8, OpenWyrldWorkbenchScreenPayload::loadedName,
             ByteBufCodecs.STRING_UTF8, OpenWyrldWorkbenchScreenPayload::loadedType,
+            ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::loadedTags,
             ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::approvedTags,
             ByteBufCodecs.collection(ArrayList::new, ByteBufCodecs.STRING_UTF8), OpenWyrldWorkbenchScreenPayload::pendingTags,
             ByteBufCodecs.BOOL, OpenWyrldWorkbenchScreenPayload::canManageTags,
