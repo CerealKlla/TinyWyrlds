@@ -60,6 +60,19 @@ public final class TinyWyrlds {
         }
     }
 
+    /** Entity-free entry: generates (or reuses) a Wyrld from {@code recipeName} and teleports
+     *  {@code player} straight in, with nothing placed in the world at all -- for a caller that
+     *  needs a one-shot "put this player into a Wyrld right now" event rather than a standing,
+     *  walk-into-it entrance (e.g. Arryval's new-player onboarding). {@code entranceId} is still the
+     *  caller's own identity for this entry, same as {@link #spawnEntrance}'s, so {@link
+     *  #getEnterResult} keeps working identically either way. See {@code
+     *  WyrldEntranceEntity#enterDirect}'s own doc for why this exists.
+     *  @return {@code false} on the same failure cases {@link #spawnEntrance}'s own entity would log
+     *      and refuse on (missing recipe, no usable WyrldPrint content, Wyrld Space not loaded). */
+    public static boolean enterEntranceDirect(ServerPlayer player, UUID entranceId, String recipeName) {
+        return WyrldEntranceEntity.enterDirect(player, entranceId, recipeName);
+    }
+
     /** What the last real entry through this entrance id produced, if any -- a plain synchronous
      *  read against {@code EntranceEnterResults} (see its own doc), so a caller like Myssions'
      *  {@code bridge.TinyWyrldsEntranceBridge} can poll for "has a player entered yet, and what
@@ -168,6 +181,27 @@ public final class TinyWyrlds {
         if (changed) {
             WyrldRecipeStorage.get().save(recipe);
         }
+    }
+
+    /**
+     * Tops up an already-existing recipe's {@link com.github.cerealklla.tinywyrlds.wyrldprint.recipe.LootTier
+     * #COMMON} loot pool with {@code item} (weight {@code weight}) if that pool is still empty --
+     * same self-healing "top up whichever pool is still empty" shape {@link #ensureRecipeExists}
+     * already uses for the friendly/enemy pools, just for a guaranteed common-loot item instead of a
+     * weighted random one. A no-op if {@code name} doesn't exist at all (call {@link
+     * #ensureRecipeExists} first) or already has at least one common-loot entry. Added 2026-11-11
+     * for Arryval's tutorial recipe, which seeds the "Kyngdoms, A History" welcome book here instead
+     * of granting it as a Kyt (explicit user instruction, same incident as {@code
+     * WyrldEntranceEntity#enterDirect}'s own doc).
+     */
+    public static void ensureCommonLootExists(String name, net.minecraft.world.item.ItemStack item, int weight) {
+        WyrldRecipeStorage.get().load(name).ifPresent(recipe -> {
+            if (recipe.commonLoot().isEmpty()) {
+                WyrldRecipeStorage.get().save(recipe.withLootAdded(
+                        com.github.cerealklla.tinywyrlds.wyrldprint.recipe.LootTier.COMMON,
+                        new com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldLootEntry(item, weight)));
+            }
+        });
     }
 
     /** Same self-healing creates-if-missing idempotent shape as {@link #ensureRecipeExists}, but

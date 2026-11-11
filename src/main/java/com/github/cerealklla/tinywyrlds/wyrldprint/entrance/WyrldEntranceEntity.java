@@ -1,5 +1,6 @@
 package com.github.cerealklla.tinywyrlds.wyrldprint.entrance;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
@@ -121,17 +122,11 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
             return WyrldManager.enter(player, generatedWyrldId);
         }
 
-        WyrldRecipe recipe = WyrldRecipeStorage.get().load(recipeName).orElse(null);
-        if (recipe == null) {
-            logGenerationFailure("Entrance " + entranceId + ": recipe '" + recipeName + "' no longer exists.");
+        Optional<OneOffGenerator.GenerateResult> generated = generateFromRecipe(player.level().getServer(), entranceId, recipeName);
+        if (generated.isEmpty()) {
             return false;
         }
-        OneOffGenerator.GenerateResult result = OneOffGenerator.generate(player.level().getServer(), recipe);
-        if (result == null) {
-            logGenerationFailure("Entrance " + entranceId + ": recipe '" + recipeName
-                    + "' has no ROOM/ENTRANCE WyrldPrints available to generate from.");
-            return false;
-        }
+        OneOffGenerator.GenerateResult result = generated.get();
         generatedWyrldId = result.instance().id();
         recordEnterResult(new EntranceEnterResult(generatedWyrldId, result.spawnedEnemyIds(), true));
         if (!result.spawnPoints().isEmpty()) {
@@ -140,9 +135,64 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
         return WyrldManager.enter(player, generatedWyrldId);
     }
 
+    /**
+     * Entity-free variant of {@link #enter} -- generates (or reuses) a Wyrld from {@code
+     * recipeName} and teleports {@code player} straight in, with nothing ever placed in the world
+     * at all. Added 2026-11-11, explicit user instruction after a real incident: a permanent,
+     * invisible, proximity-triggered entrance placed wherever a player happens to be standing is
+     * never the right shape for a one-shot "put this player into a Wyrld right now" event (Arryval's
+     * new-player onboarding, see its own {@code onboarding.FirstLoginListener}) -- "there is no
+     * scenario where a permanent tutorial entrance makes sense... Manually teleport the player into
+     * the tutorial." Reuse here is backed by {@link EntranceEnterResults} alone (in-memory only,
+     * not persisted across a restart) since there's no entity to hold a durable field on -- an
+     * accepted gap, matching Arryval's own {@code PendingOnboarding} already being entirely
+     * in-memory for the same kind of state.
+     */
+    public static boolean enterDirect(ServerPlayer player, UUID entranceId, String recipeName) {
+        var server = player.level().getServer();
+        if (!(server.getLevel(com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension.KEY) instanceof ServerLevel wyrldLevel)) {
+            return false;
+        }
+        Optional<EntranceEnterResult> cached = EntranceEnterResults.get(entranceId);
+        if (cached.isPresent() && WyrldSpaceData.get(server).getInstance(cached.get().wyrldId()).isPresent()) {
+            return WyrldManager.enter(player, cached.get().wyrldId());
+        }
+
+        Optional<OneOffGenerator.GenerateResult> generated = generateFromRecipe(server, entranceId, recipeName);
+        if (generated.isEmpty()) {
+            return false;
+        }
+        OneOffGenerator.GenerateResult result = generated.get();
+        UUID wyrldId = result.instance().id();
+        EntranceEnterResults.record(entranceId, new EntranceEnterResult(wyrldId, result.spawnedEnemyIds(), true));
+        if (!result.spawnPoints().isEmpty()) {
+            return WyrldManager.enterAt(player, wyrldId, result.spawnPoints().get(0));
+        }
+        return WyrldManager.enter(player, wyrldId);
+    }
+
+    /** Shared by {@link #enter} and {@link #enterDirect} -- loads {@code recipeName} and runs
+     *  generation, logging (server-side only, see {@link #logGenerationFailure}'s own doc) and
+     *  returning empty on any failure. */
+    private static Optional<OneOffGenerator.GenerateResult> generateFromRecipe(net.minecraft.server.MinecraftServer server,
+            UUID entranceId, String recipeName) {
+        WyrldRecipe recipe = WyrldRecipeStorage.get().load(recipeName).orElse(null);
+        if (recipe == null) {
+            logGenerationFailure("Entrance " + entranceId + ": recipe '" + recipeName + "' no longer exists.");
+            return Optional.empty();
+        }
+        OneOffGenerator.GenerateResult result = OneOffGenerator.generate(server, recipe);
+        if (result == null) {
+            logGenerationFailure("Entrance " + entranceId + ": recipe '" + recipeName
+                    + "' has no ROOM/ENTRANCE WyrldPrints available to generate from.");
+            return Optional.empty();
+        }
+        return Optional.of(result);
+    }
+
     /** See this class's own field-level doc above for why this is server-log-only -- never sent to
      *  the player's chat, not even once. */
-    private void logGenerationFailure(String logDetail) {
+    private static void logGenerationFailure(String logDetail) {
         com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.warn("WyrldEntranceEntity: {}", logDetail);
     }
 

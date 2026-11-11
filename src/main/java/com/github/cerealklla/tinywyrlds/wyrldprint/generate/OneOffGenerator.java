@@ -218,18 +218,20 @@ public final class OneOffGenerator {
         List<WyrldPrintRecord> entrances;
         // WyrldPrintType#TUTORIAL's own resolution -- "whichever saved TUTORIAL is newest," never
         // a pinned name -- takes priority over (and is mutually exclusive with, in practice) the
-        // entranceName pin below. Falls back to the old ENTRANCE-pool behavior if no TUTORIAL has
-        // ever been saved yet, same "don't brick generation over stale/missing content" posture as
-        // entranceName's own fallback.
+        // entranceName pin below. Deliberately a HARD failure (return null), not a fallback to a
+        // random ENTRANCE, if no TUTORIAL has ever been saved -- real incident, 2026-11-11: a
+        // random substitute ENTRANCE has no tutorial content and no guaranteed exit (that's
+        // player-placed only, and nobody places one inside a dungeon they never intended to
+        // generate), so it silently traps whoever triggers it. Unlike entranceName's own
+        // stale-reference fallback below, there is no safe substitute here.
         if (useLatestTutorialPrint) {
             Optional<WyrldPrintRecord> latestTutorial = WyrldPrintStorage.get().loadLatestOfType(WyrldPrintType.TUTORIAL);
-            if (latestTutorial.isPresent()) {
-                entrances = List.of(latestTutorial.get());
-            } else {
+            if (latestTutorial.isEmpty()) {
                 com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.warn(
-                        "OneOffGenerator: recipe wants the latest TUTORIAL print but none has ever been saved -- falling back to random ENTRANCE selection");
-                entrances = allEntrances;
+                        "OneOffGenerator: recipe wants the latest TUTORIAL print but none has ever been saved -- refusing to generate (no safe substitute)");
+                return null;
             }
+            entrances = List.of(latestTutorial.get());
         } else {
             // A recipe naming a specific entrance (e.g. Arryval's WelcomeTutorial, which must never
             // land a new player in an unrelated dungeon's entrance) gets pinned to just that one --
