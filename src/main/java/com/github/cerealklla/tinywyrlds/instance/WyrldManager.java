@@ -11,6 +11,8 @@ import com.github.cerealklla.tinywyrlds.space.FreeRect;
 import com.github.cerealklla.tinywyrlds.space.WyrldSpaceAllocator;
 import com.github.cerealklla.tinywyrlds.space.WyrldSpaceData;
 import com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension;
+import com.github.cerealklla.tinywyrlds.wyrldprint.generate.TunnelGenerationRecord;
+import com.github.cerealklla.tinywyrlds.wyrldprint.generate.TunnelGenerationStorage;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
@@ -205,14 +207,22 @@ public final class WyrldManager {
     public static void tick(MinecraftServer server) {
         WyrldSpaceData data = WyrldSpaceData.get(server);
         Set<UUID> occupiedWyrlds = occupiedWyrldIds(server);
+        Set<UUID> referencedTunnelWyrlds = referencedTunnelWyrldIds();
         long now = server.overworld().getGameTime();
 
         for (WyrldInstanceRecord instance : data.allInstances().values()) {
             // PUBLIC instances (Tunnels -- see WyrldLifecycle's own doc) are meant to just always
             // exist, the same way a real-world passage doesn't disappear when nobody's using it --
             // explicit user spec ("permanent"). Exempt from the whole idle sweep, not just given a
-            // longer timer.
-            if (instance.lifecycle() == WyrldLifecycle.PUBLIC) {
+            // longer timer -- but ONLY as long as some real Tunnel door's own file still actually
+            // references it (added 2026-11-12, closing the one real gap deleting that file by hand
+            // couldn't on its own: nothing runs at the moment of a raw filesystem delete, so an
+            // orphaned PUBLIC instance would otherwise sit allocated forever). The occupancy check
+            // right below still protects it exactly like any other instance the instant this
+            // exemption no longer applies -- a Tunnel that's still genuinely in use when its file
+            // happens to get deleted is never touched while anyone's actually inside it, only once
+            // it goes properly idle for the same 5+15 minutes every other instance already gets.
+            if (instance.lifecycle() == WyrldLifecycle.PUBLIC && referencedTunnelWyrlds.contains(instance.id())) {
                 continue;
             }
             if (occupiedWyrlds.contains(instance.id())) {
@@ -234,6 +244,16 @@ public final class WyrldManager {
         Set<UUID> result = new HashSet<>();
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             player.getData(ModAttachments.WYRLD_DATA).currentWyrldId().ifPresent(result::add);
+        }
+        return result;
+    }
+
+    /** Every Wyrld a {@code TunnelGenerationRecord} file on disk still names -- see this method's
+     *  one call site's own doc for why the PUBLIC exemption is conditioned on this. */
+    private static Set<UUID> referencedTunnelWyrldIds() {
+        Set<UUID> result = new HashSet<>();
+        for (TunnelGenerationRecord record : TunnelGenerationStorage.get().listAll()) {
+            result.add(record.wyrldInstanceId());
         }
         return result;
     }
