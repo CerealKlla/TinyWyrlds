@@ -109,7 +109,7 @@ public final class OneOffGenerator {
      *  proportional) scheme was confirmed broken: "the scale is irrelevant... I just want the exit
      *  locations to make sense" -- rooms underground may end up considerably larger than their
      *  above-ground footprint, and that's fine. */
-    private static final double TARGET_SPREAD_CELLS = 24.0;
+    static final double TARGET_SPREAD_CELLS = 24.0;
     /** A branch's growth toward its own target coordinate (see {@link #tryShapedTunnelPlan}'s own
      *  doc) stops once within this many cells of it -- pieces are themselves several cells wide, so
      *  exact coordinate equality is never a realistic goal ("try to place an exit on that door
@@ -118,8 +118,14 @@ public final class OneOffGenerator {
     private static final int TARGET_STOP_THRESHOLD = 2;
     /** Per-edge growth attempt budget before giving up on getting any closer and placing the
      *  leaf/fork at whatever frontier growth has reached so far -- a soft best-effort stop, not a
-     *  hard failure (only a step that can place no piece at all, at any point, is a hard failure). */
-    private static final int MAX_STEER_ATTEMPTS = 60;
+     *  hard failure (only a step that can place no piece at all, at any point, is a hard failure).
+     *  Deliberately modest, not generous -- see {@link #growTowardTarget}'s own doc for why a large
+     *  budget here caused a real, confirmed-live regression (a 611-piece Tunnel): every ordinary
+     *  connector/2-door-room in this catalog is a straight pass-through, so mid-chain growth can
+     *  never actually turn toward a target that's off in the wrong direction -- it can only ever
+     *  correct course at a FORK (see {@link #bestDirectionAssignment}), so there's no reason for
+     *  this budget to be large. */
+    private static final int MAX_STEER_ATTEMPTS = 20;
     /** How much worse (in local cells) a candidate placement's resulting distance-to-target may be
      *  than the single best one and still be eligible for random selection -- keeps growth from
      *  reading as a perfectly robotic beeline while still generally advancing toward the target. */
@@ -824,7 +830,7 @@ public final class OneOffGenerator {
 
     /** Every leaf's own distance from {@code (centroidX, centroidZ)} -- the farthest one sets the
      *  scale in {@link #tryShapedTunnelPlan} ({@link #TARGET_SPREAD_CELLS} divided by this). */
-    private static double maxLeafRadius(MergeNode node, double centroidX, double centroidZ) {
+    static double maxLeafRadius(MergeNode node, double centroidX, double centroidZ) {
         if (node.isLeaf()) {
             double dx = node.centroidX() - centroidX;
             double dz = node.centroidZ() - centroidZ;
@@ -846,7 +852,7 @@ public final class OneOffGenerator {
      *  explicit user spec word for word: "Door A having Door B to the north east of it... rotation
      *  can change in the tunnel as compass doesn't matter, but they should be related to each other
      *  correctly." */
-    private static int[] targetLocalCoord(MergeNode node, double groupCentroidX, double groupCentroidZ, double scale) {
+    static int[] targetLocalCoord(MergeNode node, double groupCentroidX, double groupCentroidZ, double scale) {
         int f = (int) Math.round((node.centroidX() - groupCentroidX) * scale);
         int l = (int) Math.round((node.centroidZ() - groupCentroidZ) * scale);
         return new int[]{f, l};
@@ -856,6 +862,79 @@ public final class OneOffGenerator {
         double df = frontier.worldForward() - targetForward;
         double dl = frontier.worldLateral() - targetLateral;
         return Math.sqrt(df * df + dl * dl);
+    }
+
+    /** Picks which 2 of {@code availableDirections} (each a {@code (dx, dz)} vector -- a wall
+     *  point's own real facing, or {@code {0, 0}} for a floor point with no facing to match) to
+     *  send {@code leftDirection}/{@code rightDirection} through, by maximizing total alignment
+     *  (dot product) between each chosen pair -- so each child heads out through whichever of the
+     *  fork's own real door directions actually points closest to where that child needs to go.
+     *
+     * <p>This is THE place direction gets decided, not {@link #growTowardTarget}'s own mid-chain
+     * steering -- real, confirmed-live regression, 2026-11-12 (a 611-piece Tunnel, entrances
+     * scattered hundreds of cells off target): every ordinary connector/2-door room in this
+     * catalog is a straight pass-through, so once a chain leaves a fork in some direction, nothing
+     * downstream can ever turn it -- picking "whichever placement lands closest to the target" at
+     * every hop had no actual leverage, since all of them land in essentially the same direction
+     * regardless of which one is chosen. The only real lever is which of the fork's own doors a
+     * child gets routed through in the first place.
+     *
+     * <p>Pure {@code double[]}/{@code int[]} math, no Minecraft types at all -- deliberately, so
+     * this (the actual decision at risk of getting direction wrong) is directly unit-testable with
+     * synthetic and real-world-derived vectors, without a live registry (see
+     * {@code OneOffGeneratorTest}). Brute-force over every ordered pair -- at most a 4-way fork's
+     * 4 choose 2 ordered pairs (12), trivially cheap.
+     * @return {@code {leftIndex, rightIndex}} into {@code availableDirections}; {@code {-1, -1}}
+     * if fewer than 2 directions are available at all. */
+    static int[] bestDirectionAssignment(List<double[]> availableDirections, double[] leftDirection, double[] rightDirection) {
+        if (availableDirections.size() < 2) {
+            return new int[]{-1, -1};
+        }
+        int bestLeft = 0;
+        int bestRight = 1;
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < availableDirections.size(); i++) {
+            for (int j = 0; j < availableDirections.size(); j++) {
+                if (i == j) {
+                    continue;
+                }
+                double score = dot(availableDirections.get(i), leftDirection) + dot(availableDirections.get(j), rightDirection);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestLeft = i;
+                    bestRight = j;
+                }
+            }
+        }
+        return new int[]{bestLeft, bestRight};
+    }
+
+    private static double dot(double[] a, double[] b) {
+        return a[0] * b[0] + a[1] * b[1];
+    }
+
+    /** Wires {@link #bestDirectionAssignment} up to real {@link Frontier}s: picks which 2 of
+     *  {@code availableFrontiers} best match {@code leftTarget}/{@code rightTarget}'s own direction
+     *  from {@code (originForward, originLateral)} (the fork piece's own placement origin),
+     *  stashing every unused frontier into {@code leftoverFrontiers}. Both real call sites already
+     *  guard {@code availableFrontiers.size() >= 2} before calling this (real review finding --
+     *  an earlier draft had a random-pick fallback here for the "fewer than 2" case, which was
+     *  dead code given that existing guard, so it's not repeated here). */
+    private static Frontier[] assignForkChildren(List<Frontier> availableFrontiers, int originForward, int originLateral,
+            int[] leftTarget, int[] rightTarget, List<Frontier> leftoverFrontiers) {
+        double[] leftDirection = {leftTarget[0] - originForward, leftTarget[1] - originLateral};
+        double[] rightDirection = {rightTarget[0] - originForward, rightTarget[1] - originLateral};
+        List<double[]> availableDirections = new ArrayList<>();
+        for (Frontier candidate : availableFrontiers) {
+            availableDirections.add(candidate.facing().map(d -> new double[]{d.getStepX(), d.getStepZ()}).orElse(new double[]{0, 0}));
+        }
+        int[] assignment = bestDirectionAssignment(availableDirections, leftDirection, rightDirection);
+        for (int i = 0; i < availableFrontiers.size(); i++) {
+            if (i != assignment[0] && i != assignment[1]) {
+                leftoverFrontiers.add(availableFrontiers.get(i));
+            }
+        }
+        return new Frontier[]{availableFrontiers.get(assignment[0]), availableFrontiers.get(assignment[1])};
     }
 
     /**
@@ -918,19 +997,17 @@ public final class OneOffGenerator {
         if (rootForkFrontiers.size() < 2) {
             return null; // the chosen fork piece doesn't actually have 2 usable points -- shouldn't happen given forkRooms' own filter, but never risk it.
         }
-        List<Frontier> shuffledRootChildren = shuffled(rootForkFrontiers, random);
-        if (shuffledRootChildren.size() > 2) {
-            leftoverFrontiers.addAll(shuffledRootChildren.subList(2, shuffledRootChildren.size()));
-        }
 
         int[] leftTarget = targetLocalCoord(tree.left(), groupCentroidX, groupCentroidZ, scale);
         int[] rightTarget = targetLocalCoord(tree.right(), groupCentroidX, groupCentroidZ, scale);
-        boolean leftOk = growTowardTarget(tree.left(), shuffledRootChildren.get(0), leftTarget[0], leftTarget[1], groupCentroidX, groupCentroidZ, scale,
+        Frontier[] rootChildren = assignForkChildren(rootForkFrontiers, rootFork.originForward(), rootFork.originLateral(),
+                leftTarget, rightTarget, leftoverFrontiers);
+        boolean leftOk = growTowardTarget(tree.left(), rootChildren[0], leftTarget[0], leftTarget[1], groupCentroidX, groupCentroidZ, scale,
                 connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
         if (!leftOk) {
             return null;
         }
-        boolean rightOk = growTowardTarget(tree.right(), shuffledRootChildren.get(1), rightTarget[0], rightTarget[1], groupCentroidX, groupCentroidZ, scale,
+        boolean rightOk = growTowardTarget(tree.right(), rootChildren[1], rightTarget[0], rightTarget[1], groupCentroidX, groupCentroidZ, scale,
                 connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
         if (!rightOk) {
             return null;
@@ -995,7 +1072,19 @@ public final class OneOffGenerator {
             if (candidates.isEmpty()) {
                 return false;
             }
-            Placement placed = pickClosestAdvance(candidates, frontier.branchDepth(), targetForward, targetLateral, random);
+            SteerChoice choice = pickClosestAdvance(candidates, frontier.branchDepth(), targetForward, targetLateral, random);
+            Placement placed = choice.placement();
+            double currentDistance = distanceToTarget(frontier, targetForward, targetLateral);
+            double newDistance = choice.bestDistance();
+            if (newDistance >= 0 && newDistance >= currentDistance - 0.0001) {
+                // Nothing available actually gets closer -- every piece in this catalog's ordinary
+                // chain is a straight pass-through (see this method's own doc), so this means
+                // direction was already wrong back at the fork, and no amount of further mid-chain
+                // placement can fix that. Stop here (placing the leaf/fork at whatever frontier
+                // growth already reached) rather than adding pointless extra rooms or burning the
+                // rest of the attempt budget for no gain.
+                break;
+            }
             placements.add(placed);
             occupied.putAll(cellStates(placed));
             logPlacement(placed);
@@ -1038,18 +1127,16 @@ public final class OneOffGenerator {
         if (forkChildren.size() < 2) {
             return false;
         }
-        List<Frontier> shuffledChildren = shuffled(forkChildren, random);
-        if (shuffledChildren.size() > 2) {
-            leftoverFrontiers.addAll(shuffledChildren.subList(2, shuffledChildren.size()));
-        }
         int[] leftTarget = targetLocalCoord(node.left(), groupCentroidX, groupCentroidZ, scale);
         int[] rightTarget = targetLocalCoord(node.right(), groupCentroidX, groupCentroidZ, scale);
-        boolean leftOk = growTowardTarget(node.left(), shuffledChildren.get(0), leftTarget[0], leftTarget[1], groupCentroidX, groupCentroidZ, scale,
+        Frontier[] assignedChildren = assignForkChildren(forkChildren, fork.originForward(), fork.originLateral(),
+                leftTarget, rightTarget, leftoverFrontiers);
+        boolean leftOk = growTowardTarget(node.left(), assignedChildren[0], leftTarget[0], leftTarget[1], groupCentroidX, groupCentroidZ, scale,
                 connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
         if (!leftOk) {
             return false;
         }
-        return growTowardTarget(node.right(), shuffledChildren.get(1), rightTarget[0], rightTarget[1], groupCentroidX, groupCentroidZ, scale,
+        return growTowardTarget(node.right(), assignedChildren[1], rightTarget[0], rightTarget[1], groupCentroidX, groupCentroidZ, scale,
                 connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
     }
 
@@ -1097,6 +1184,16 @@ public final class OneOffGenerator {
         return results;
     }
 
+    /** @param placement the chosen candidate. @param bestDistance the TRUE best distance found
+     *  among every candidate -- not necessarily {@code placement}'s own distance, since ties within
+     *  {@link #STEER_TOLERANCE} are broken randomly (see {@link #pickClosestAdvance}'s own doc).
+     *  {@link #growTowardTarget}'s early-stop check needs this true best (real review finding: it
+     *  used to compare against the randomly-chosen candidate's own distance, which could abort a
+     *  branch even when a genuinely better placement existed this same hop, just not the one the
+     *  random tie-break happened to return). */
+    private record SteerChoice(Placement placement, double bestDistance) {
+    }
+
     /** Among every valid {@code candidates} placement, picks whichever one's resulting new
      *  frontier lands closest to {@code (targetForward, targetLateral)} -- ties (anything within
      *  {@link #STEER_TOLERANCE} cells of the single best) are broken randomly, so growth still
@@ -1107,7 +1204,7 @@ public final class OneOffGenerator {
      *  since {@code candidatePlacementsAt} enumerates in fixed catalog/point/rotation order, never
      *  shuffled -- that's a deterministic, repeated bias on every single growth step, not a rare
      *  ordering fluke. */
-    private static Placement pickClosestAdvance(List<Placement> candidates, int parentBranchDepth, int targetForward, int targetLateral, RandomSource random) {
+    private static SteerChoice pickClosestAdvance(List<Placement> candidates, int parentBranchDepth, int targetForward, int targetLateral, RandomSource random) {
         double bestDistance = Double.MAX_VALUE;
         for (Placement candidate : candidates) {
             double distance = resultingDistance(candidate, parentBranchDepth, targetForward, targetLateral);
@@ -1122,7 +1219,14 @@ public final class OneOffGenerator {
                 best.add(candidate);
             }
         }
-        return best.isEmpty() ? candidates.get(0) : best.get(random.nextInt(best.size()));
+        if (best.isEmpty()) {
+            // every candidate was a dead end (should never happen, see resultingDistance's own
+            // doc) -- fall back to the first one, same as before, with its own real distance
+            // (there is no "true best" to report here, since nothing had a valid one).
+            Placement fallback = candidates.get(0);
+            return new SteerChoice(fallback, resultingDistance(fallback, parentBranchDepth, targetForward, targetLateral));
+        }
+        return new SteerChoice(best.get(random.nextInt(best.size())), bestDistance);
     }
 
     /** @return the resulting new frontier's distance to the target, or {@code -1} if {@code
