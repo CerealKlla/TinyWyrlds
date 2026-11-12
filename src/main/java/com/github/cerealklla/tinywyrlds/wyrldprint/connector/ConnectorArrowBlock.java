@@ -25,8 +25,13 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * facing} giving a builder no actual visual cue about which way a connector point's "outward"
  * direction (away from the piece's own body, toward where the next piece will attach) is pointing.
  * A door looks the same regardless of {@code facing} unless you already know vanilla's own
- * placement convention -- this doesn't: it's a thin (snow-layer-depth), mostly transparent slab
- * with a visible arrow baked into its texture, so the direction is unambiguous at a glance.
+ * placement convention -- this doesn't: it's a thin (snow-layer-depth) floor decal, not a
+ * wall-mounted plane -- real correction after a first attempt mounted it vertically on the wall,
+ * which (confirmed live, by screenshot) read as a tall ambiguous repeated pattern instead of one
+ * clear marker. The real shape is a single flat slice resting on the ground (identical profile to
+ * vanilla's own snow layer), with the arrow visible looking down at it from above, pointing in
+ * {@code FACING}'s horizontal direction. Genuinely has no collision at all (explicit spec: "the
+ * arrow itself should have no collision") -- a player just walks straight through/over it.
  *
  * <p>Single-cell (no {@code HALF} the old door-based block needed) -- {@link #size} is still baked
  * in at registration, not a blockstate property, same precedent as the block it replaces.
@@ -73,23 +78,22 @@ public class ConnectorArrowBlock extends HorizontalDirectionalBlock {
         return InteractionResult.SUCCESS;
     }
 
-    /** Snow-layer-thin, flush against the wall behind it (the side opposite {@code FACING}), so
-     *  the arrow face protrudes only slightly toward whoever's meant to read it. Non-full-cube,
-     *  same {@code noOcclusion()} intent the door-based block already had. */
+    /** Snow-layer-thin, resting flat on the ground -- same profile as vanilla's own snow layer
+     *  ({@code Block.box(0,0,0,16,2,16)}), regardless of {@code FACING} (rotation only affects the
+     *  arrow's own horizontal direction, not this shape). Used for the selection outline only --
+     *  {@link #getCollisionShape} overrides collision separately to stay fully walkable. */
+    private static final VoxelShape SHAPE = net.minecraft.world.level.block.Block.box(0, 0, 0, 16, 2, 16);
+
     @Override
     protected VoxelShape getShape(BlockState state, net.minecraft.world.level.BlockGetter level, BlockPos pos, CollisionContext context) {
-        double depth = 2.0;
-        return switch (state.getValue(FACING)) {
-            case NORTH -> thinBox(0, 0, 0, 16, 16, depth);
-            case SOUTH -> thinBox(0, 0, 16 - depth, 16, 16, 16);
-            case WEST -> thinBox(0, 0, 0, depth, 16, 16);
-            case EAST -> thinBox(16 - depth, 0, 0, 16, 16, 16);
-            default -> thinBox(0, 0, 0, 16, 16, depth);
-        };
+        return SHAPE;
     }
 
-    private static VoxelShape thinBox(double x1, double y1, double z1, double x2, double y2, double z2) {
-        return net.minecraft.world.level.block.Block.box(x1, y1, z1, x2, y2, z2);
+    /** Explicit spec: "the arrow itself should have no collision" -- a player walks straight
+     *  through it, same as the 2-block-tall doorway opening it sits at the base of. */
+    @Override
+    protected VoxelShape getCollisionShape(BlockState state, net.minecraft.world.level.BlockGetter level, BlockPos pos, CollisionContext context) {
+        return net.minecraft.world.phys.shapes.Shapes.empty();
     }
 
     @Override
