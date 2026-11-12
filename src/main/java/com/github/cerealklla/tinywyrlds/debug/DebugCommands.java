@@ -6,6 +6,7 @@ import com.mojang.brigadier.arguments.StringArgumentType;
 
 import com.github.cerealklla.tinywyrlds.instance.WyrldInstanceRecord;
 import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
+import com.github.cerealklla.tinywyrlds.space.WyrldSpaceData;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintArea;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintCapture;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintPlacement;
@@ -171,7 +172,10 @@ public final class DebugCommands {
                                         .executes(ctx -> spawnEntranceHere(ctx.getSource(),
                                                 StringArgumentType.getString(ctx, "recipeName")))))
                         .then(Commands.literal("enter")
-                                .executes(ctx -> enterNearestEntrance(ctx.getSource())))));
+                                .executes(ctx -> enterNearestEntrance(ctx.getSource()))))
+                .then(Commands.literal("tunnel")
+                        .then(Commands.literal("clear")
+                                .executes(ctx -> clearAllTunnelGenerations(ctx.getSource())))));
     }
 
     private static int saveWyrldPrint(CommandSourceStack source, String name, String typeArg) {
@@ -515,6 +519,27 @@ public final class DebugCommands {
                     + " from recipe '" + name + "' (no player to enter -- run from RCON/console)."), false);
         }
         return 1;
+    }
+
+    /** Wipes every already-remembered Tunnel generation (both automatic natural-village and
+     *  Mayor-placed Tunnel Stakes alike -- {@code WyrldSpaceData#tunnelAssignments} doesn't
+     *  distinguish between them) and properly frees each one's reserved space, so the next
+     *  door-touch on every pair regenerates fresh instead of resuming the stale instance. Explicit
+     *  user request, 2026-11-11, right after changing which tags a Tunnel recipe requires: "please
+     *  delete all the already generated settlement tunnel prynts, i'll go touch the doors to
+     *  generate new ones now." Does not touch the saved WyrldPrint templates themselves or either
+     *  door's own pairing/recipe -- only the cached generation result. */
+    private static int clearAllTunnelGenerations(CommandSourceStack source) {
+        WyrldSpaceData data = WyrldSpaceData.get(source.getServer());
+        var assignments = data.allTunnelAssignments();
+        for (var entry : assignments.entrySet()) {
+            WyrldManager.deleteWyrld(source.getServer(), entry.getValue());
+            data.removeTunnelAssignment(entry.getKey());
+        }
+        int count = assignments.size();
+        source.sendSuccess(() -> Component.literal("Cleared " + count + " generated Tunnel instance(s) -- "
+                + "the next door touch on each pair will regenerate fresh."), false);
+        return count;
     }
 
     /** Debug equivalent of {@code api.TinyWyrlds#spawnEntrance} -- spawns one at the command

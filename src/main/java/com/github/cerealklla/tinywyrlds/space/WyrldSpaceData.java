@@ -111,4 +111,18 @@ public final class WyrldSpaceData extends SavedData {
         tunnelAssignments.put(key, wyrldId);
         setDirty();
     }
+
+    /** A snapshot of every currently-remembered Tunnel generation -- added 2026-11-11 so an admin
+     *  tool (see {@code debug.DebugCommands}' {@code tunnel clear}) can wipe every already-generated
+     *  Tunnel dungeon at once (e.g. after changing which tags a Tunnel recipe requires), forcing the
+     *  next door-touch on each pair to regenerate fresh instead of resuming the stale one. */
+    public Map<String, UUID> allTunnelAssignments() {
+        return Map.copyOf(tunnelAssignments);
+    }
+
+    public void removeTunnelAssignment(String key) {
+        if (tunnelAssignments.remove(key) != null) {
+            setDirty();
+        }
+    }
 }
