@@ -31,8 +31,8 @@ import net.minecraft.world.phys.BlockHitResult;
  * TrapDoorBlock} (open/close animation, HALF/OPEN state machinery) -- same single-cell placeholder
  * shape approach as before, just reshaped flat instead of standing. No {@code BlockItem}/placement
  * item exists for this on purpose -- every known use case so far (a settlement's own internal
- * shortcut, a world-gen mountain bypass, a Mayor-placed stake pair) places a pair of these
- * programmatically via {@code api.TinyWyrlds#createTunnelDoorPair}, never by hand.
+ * shortcut, a world-gen mountain bypass, a Mayor-placed stake group) places a group of these
+ * programmatically via {@code api.TinyWyrlds#createTunnelDoorGroup}, never by hand.
  */
 public class TunnelDoorBlock extends Block implements EntityBlock {
 

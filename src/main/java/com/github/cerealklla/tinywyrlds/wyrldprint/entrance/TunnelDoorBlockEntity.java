@@ -1,5 +1,7 @@
 package com.github.cerealklla.tinywyrlds.wyrldprint.entrance;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -24,27 +26,37 @@ import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 
 /**
- * Holds one {@link TunnelDoorBlock}'s own Tunnel-pairing identity -- which pair it belongs to,
- * whether it's the "A" or "B" end, where its partner door physically is, which {@code WyrldRecipe}
- * generates the connecting content, and which {@link WyrldLifecycle} governs it. Both doors of a
- * pair are configured together, once, by {@code api.TinyWyrlds#createTunnelDoorPair} -- each one
- * is handed the other's real {@link GlobalPos} directly at creation time, so neither ever needs a
- * registry/index lookup to find its partner.
+ * Holds one {@link TunnelDoorBlock}'s own Tunnel-group identity -- which group it belongs to, its
+ * own index within that group, where every door in the group physically is (itself included, at
+ * {@code groupPositions.get(roleIndex)}), which {@code WyrldRecipe} generates the connecting
+ * content, and which {@link WyrldLifecycle} governs it. Every door of a group is configured
+ * together, once, by {@code api.TinyWyrlds#createTunnelDoorGroup} -- each one is handed the whole
+ * group's real {@link GlobalPos} list directly at creation time, so none ever needs a
+ * registry/index lookup to find the others.
+ *
+ * <p>Widened from a fixed two-door {@code roleA}/{@code partnerPos} pair to an arbitrary-length
+ * group, 2026-11-12, per explicit user spec: "certain settlements could have multiple entrances to
+ * the same underground sewer system... I could also see having multiple entrances to, say, a
+ * mountain mineshaft themed tunnel." A door's own {@code groupId} (NBT key kept as {@code "PairId"}
+ * for backward compatibility with already-placed doors) is still just a UUID shared by the whole
+ * group, whatever its size.
  *
  * <p>{@link #enter} is the whole mechanic: resolve (or lazily generate, on the very first use --
  * explicit user instruction not to bother generating any earlier, "whichever is easier/less
- * performance heavy on the server") the one Wyrld instance this pairing leads to, keyed in {@code
- * WyrldSpaceData}'s tunnel-assignment map by the pair id alone for {@link WyrldLifecycle#PUBLIC}
- * (one shared instance for every entrant) or by pair id + the entering player's own UUID for
+ * performance heavy on the server") the one Wyrld instance this group leads to, keyed in {@code
+ * WyrldSpaceData}'s tunnel-assignment map by the group id alone for {@link WyrldLifecycle#PUBLIC}
+ * (one shared instance for every entrant) or by group id + the entering player's own UUID for
  * {@link WyrldLifecycle#INSTANCED} (a private generation per player, first-come-first-generated) --
- * then teleport the player to whichever of the instance's two baked-in spawn points matches this
- * door's own role.
+ * then teleport the player to whichever of the instance's baked-in spawn points matches this door's
+ * own {@code roleIndex}.
  */
 public class TunnelDoorBlockEntity extends BlockEntity {
 
-    private UUID pairId;
-    private boolean roleA;
-    private GlobalPos partnerPos;
+    private UUID groupId;
+    private int roleIndex;
+    /** Every door's position in this group, including this door's own (at {@code groupPositions
+     *  .get(roleIndex)}), in the same order every door in the group was configured in. */
+    private List<GlobalPos> groupPositions = List.of();
     private String recipeName = "";
     private WyrldLifecycle lifecycle = WyrldLifecycle.INSTANCED;
     /** A copy of {@link #recipeName}'s own recipe, captured whenever it's successfully loaded --
@@ -60,14 +72,14 @@ public class TunnelDoorBlockEntity extends BlockEntity {
         super(ModBlockEntities.TUNNEL_DOOR.get(), pos, state);
     }
 
-    /** Called once, right after placement, by {@code api.TinyWyrlds#createTunnelDoorPair} -- never
+    /** Called once, right after placement, by {@code api.TinyWyrlds#createTunnelDoorGroup} -- never
      *  re-configured afterward. The recipe is loaded once here too, as this door's first {@link
      *  #recipeBackup} -- {@code ensureTunnelRecipeExists} has always already run by this point,
      *  so it's real. */
-    public void configure(UUID pairId, boolean roleA, GlobalPos partnerPos, String recipeName, WyrldLifecycle lifecycle) {
-        this.pairId = pairId;
-        this.roleA = roleA;
-        this.partnerPos = partnerPos;
+    public void configure(UUID groupId, int roleIndex, List<GlobalPos> groupPositions, String recipeName, WyrldLifecycle lifecycle) {
+        this.groupId = groupId;
+        this.roleIndex = roleIndex;
+        this.groupPositions = List.copyOf(groupPositions);
         this.recipeName = recipeName;
         this.lifecycle = lifecycle;
         this.recipeBackup = WyrldRecipeStorage.get().load(recipeName).orElse(null);
@@ -75,18 +87,18 @@ public class TunnelDoorBlockEntity extends BlockEntity {
     }
 
     public void enter(ServerPlayer player) {
-        if (pairId == null || partnerPos == null || level == null) {
+        if (groupId == null || groupPositions.isEmpty() || level == null) {
             TinyWyrldsMod.LOGGER.warn("TunnelDoorBlockEntity at {}: never configured -- not a real Tunnel door.", worldPosition);
             return;
         }
         MinecraftServer server = player.level().getServer();
-        String assignmentKey = lifecycle == WyrldLifecycle.PUBLIC ? pairId.toString() : pairId + ":" + player.getUUID();
+        String assignmentKey = lifecycle == WyrldLifecycle.PUBLIC ? groupId.toString() : groupId + ":" + player.getUUID();
 
         Optional<UUID> existingWyrldId = WyrldSpaceData.get(server).getTunnelAssignment(assignmentKey);
         if (existingWyrldId.isPresent()) {
             Optional<WyrldInstanceRecord> existingInstance = WyrldSpaceData.get(server).getInstance(existingWyrldId.get());
             if (existingInstance.isPresent()) {
-                Optional<BlockPos> spawn = roleA ? existingInstance.get().tunnelSpawnA() : existingInstance.get().tunnelSpawnB();
+                Optional<BlockPos> spawn = existingInstance.get().tunnelSpawn(roleIndex);
                 if (spawn.isPresent()) {
                     WyrldManager.enterAt(player, existingWyrldId.get(), spawn.get());
                     return;
@@ -102,34 +114,53 @@ public class TunnelDoorBlockEntity extends BlockEntity {
         if (recipe == null && recipeBackup != null) {
             recipe = recipeBackup;
             WyrldRecipeStorage.get().save(recipe);
-            TinyWyrldsMod.LOGGER.info("TunnelDoorBlockEntity: recipe '{}' was missing for Tunnel pair {} -- restored from this door's own stored backup copy.", recipeName, pairId);
+            TinyWyrldsMod.LOGGER.info("TunnelDoorBlockEntity: recipe '{}' was missing for Tunnel group {} -- restored from this door's own stored backup copy.", recipeName, groupId);
         }
         if (recipe == null) {
-            TinyWyrldsMod.LOGGER.warn("TunnelDoorBlockEntity: recipe '{}' no longer exists for Tunnel pair {}, and no backup copy is stored to restore it from.", recipeName, pairId);
+            TinyWyrldsMod.LOGGER.warn("TunnelDoorBlockEntity: recipe '{}' no longer exists for Tunnel group {}, and no backup copy is stored to restore it from.", recipeName, groupId);
             return;
         }
         if (!recipe.equals(recipeBackup)) {
             recipeBackup = recipe;
             setChanged();
         }
-        GlobalPos myPos = GlobalPos.of(level.dimension(), worldPosition);
-        GlobalPos destA = roleA ? myPos : partnerPos;
-        GlobalPos destB = roleA ? partnerPos : myPos;
-        OneOffGenerator.TunnelGenerateResult result = OneOffGenerator.generateTunnel(server, recipe, destA, destB, lifecycle);
+        OneOffGenerator.TunnelGenerateResult result = OneOffGenerator.generateTunnel(server, recipe, groupPositions, lifecycle);
         if (result == null) {
-            TinyWyrldsMod.LOGGER.warn("TunnelDoorBlockEntity: recipe '{}' has no valid ENTRANCE/CONNECTOR/ROOM content to build Tunnel pair {} from.", recipeName, pairId);
+            TinyWyrldsMod.LOGGER.warn("TunnelDoorBlockEntity: recipe '{}' has no valid ENTRANCE/CONNECTOR/ROOM content to build Tunnel group {} from.", recipeName, groupId);
             return;
         }
         WyrldSpaceData.get(server).putTunnelAssignment(assignmentKey, result.instance().id());
-        WyrldManager.enterAt(player, result.instance().id(), roleA ? result.spawnA() : result.spawnB());
+        BlockPos spawn = result.spawns().get(roleIndex);
+        WyrldManager.enterAt(player, result.instance().id(), spawn);
     }
 
     @Override
     protected void loadAdditional(ValueInput input) {
         super.loadAdditional(input);
-        pairId = input.read("PairId", UUIDUtil.CODEC).orElse(null);
-        roleA = input.getBooleanOr("RoleA", true);
-        partnerPos = input.read("PartnerPos", GlobalPos.CODEC).orElse(null);
+        groupId = input.read("PairId", UUIDUtil.CODEC).orElse(null);
+        roleIndex = input.getIntOr("RoleIndex", input.getBooleanOr("RoleA", true) ? 0 : 1);
+        List<GlobalPos> loaded = input.read("GroupPositions", GlobalPos.CODEC.listOf()).orElse(null);
+        if (loaded == null) {
+            // Pre-generalization save (single PartnerPos, implicit 2-door group) -- reconstruct the
+            // equivalent 2-element group list from the old fields so an already-placed Tunnel door
+            // keeps working with no manual migration.
+            GlobalPos partnerPos = input.read("PartnerPos", GlobalPos.CODEC).orElse(null);
+            if (partnerPos != null && level != null) {
+                GlobalPos myPos = GlobalPos.of(level.dimension(), worldPosition);
+                List<GlobalPos> rebuilt = new ArrayList<>();
+                if (roleIndex == 0) {
+                    rebuilt.add(myPos);
+                    rebuilt.add(partnerPos);
+                } else {
+                    rebuilt.add(partnerPos);
+                    rebuilt.add(myPos);
+                }
+                loaded = rebuilt;
+            } else {
+                loaded = List.of();
+            }
+        }
+        groupPositions = loaded;
         recipeName = input.getStringOr("RecipeName", "");
         lifecycle = input.read("Lifecycle", WyrldLifecycle.CODEC).orElse(WyrldLifecycle.INSTANCED);
         recipeBackup = input.read("RecipeBackup", WyrldRecipe.CODEC).orElse(null);
@@ -138,9 +169,9 @@ public class TunnelDoorBlockEntity extends BlockEntity {
     @Override
     protected void saveAdditional(ValueOutput output) {
         super.saveAdditional(output);
-        output.storeNullable("PairId", UUIDUtil.CODEC, pairId);
-        output.putBoolean("RoleA", roleA);
-        output.storeNullable("PartnerPos", GlobalPos.CODEC, partnerPos);
+        output.storeNullable("PairId", UUIDUtil.CODEC, groupId);
+        output.putInt("RoleIndex", roleIndex);
+        output.store("GroupPositions", GlobalPos.CODEC.listOf(), groupPositions);
         output.putString("RecipeName", recipeName);
         output.store("Lifecycle", WyrldLifecycle.CODEC, lifecycle);
         output.storeNullable("RecipeBackup", WyrldRecipe.CODEC, recipeBackup);

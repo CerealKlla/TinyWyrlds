@@ -18,17 +18,21 @@ import net.minecraft.core.UUIDUtil;
  * see that class's own doc for the buffer margin), the shared baseline Y every instance starts
  * from ({@code WyrldManager#BASELINE_Y}), and its lifecycle state.
  *
- * <p>{@code lifecycle}/{@code exitBindings}/{@code tunnelSpawnA}/{@code tunnelSpawnB} added
- * 2026-11-11 for Tunnels (see {@code generate.OneOffGenerator#generateTunnel}) -- all four default
- * empty/{@code INSTANCED} for every pre-existing instance and every ordinary (non-Tunnel) dungeon,
- * which never populates them. {@code exitBindings} is a flat list rather than a real {@code Map}
- * keyed by {@code BlockPos} purely because Mojang's codec map helpers want a string-encodable key
- * -- {@link WyrldManager#resolveExitDestination} just does the equality scan itself, and this list
- * is never more than 2 entries long in practice (one per Tunnel anchor) so that's not a real cost.
+ * <p>{@code lifecycle}/{@code exitBindings}/{@code tunnelSpawns} added 2026-11-11 for Tunnels (see
+ * {@code generate.OneOffGenerator#generateTunnel}) -- all default empty/{@code INSTANCED} for every
+ * pre-existing instance and every ordinary (non-Tunnel) dungeon, which never populates them.
+ * {@code exitBindings} is a flat list rather than a real {@code Map} keyed by {@code BlockPos}
+ * purely because Mojang's codec map helpers want a string-encodable key -- {@link
+ * WyrldManager#resolveExitDestination} just does the equality scan itself. {@code tunnelSpawns} is
+ * indexed by each real-world door's own {@code roleIndex} (see {@code wyrldprint.entrance
+ * .TunnelDoorBlockEntity}) -- widened from a fixed {@code tunnelSpawnA}/{@code tunnelSpawnB} pair
+ * to an arbitrary-length list, 2026-11-12, for Tunnels with more than 2 real-world doors (explicit
+ * user spec: "certain settlements could have multiple entrances to the same underground sewer
+ * system").
  */
 public record WyrldInstanceRecord(UUID id, FreeRect fullRect, FreeRect innerRect, int baselineY, WyrldState state,
                                    long lastActiveGameTime, WyrldLifecycle lifecycle, List<WyrldExitBinding> exitBindings,
-                                   Optional<BlockPos> tunnelSpawnA, Optional<BlockPos> tunnelSpawnB) {
+                                   List<BlockPos> tunnelSpawns) {
 
     public static final Codec<WyrldInstanceRecord> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             UUIDUtil.CODEC.fieldOf("id").forGetter(WyrldInstanceRecord::id),
@@ -39,25 +43,29 @@ public record WyrldInstanceRecord(UUID id, FreeRect fullRect, FreeRect innerRect
             Codec.LONG.fieldOf("last_active_game_time").forGetter(WyrldInstanceRecord::lastActiveGameTime),
             WyrldLifecycle.CODEC.optionalFieldOf("lifecycle", WyrldLifecycle.INSTANCED).forGetter(WyrldInstanceRecord::lifecycle),
             WyrldExitBinding.CODEC.listOf().optionalFieldOf("exit_bindings", List.of()).forGetter(WyrldInstanceRecord::exitBindings),
-            BlockPos.CODEC.optionalFieldOf("tunnel_spawn_a").forGetter(WyrldInstanceRecord::tunnelSpawnA),
-            BlockPos.CODEC.optionalFieldOf("tunnel_spawn_b").forGetter(WyrldInstanceRecord::tunnelSpawnB)
+            BlockPos.CODEC.listOf().optionalFieldOf("tunnel_spawns", List.of()).forGetter(WyrldInstanceRecord::tunnelSpawns)
     ).apply(instance, WyrldInstanceRecord::new));
 
     public WyrldInstanceRecord withState(WyrldState newState, long gameTime) {
-        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, newState, gameTime, lifecycle, exitBindings, tunnelSpawnA, tunnelSpawnB);
+        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, newState, gameTime, lifecycle, exitBindings, tunnelSpawns);
     }
 
     public WyrldInstanceRecord withLifecycle(WyrldLifecycle newLifecycle) {
-        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, newLifecycle, exitBindings, tunnelSpawnA, tunnelSpawnB);
+        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, newLifecycle, exitBindings, tunnelSpawns);
     }
 
     public WyrldInstanceRecord withExitBindings(List<WyrldExitBinding> newExitBindings) {
-        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, newExitBindings, tunnelSpawnA, tunnelSpawnB);
+        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, newExitBindings, tunnelSpawns);
     }
 
-    public WyrldInstanceRecord withTunnelSpawns(BlockPos spawnA, BlockPos spawnB) {
-        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, exitBindings,
-                Optional.of(spawnA), Optional.of(spawnB));
+    /** @param spawns one spawn point per real-world door, indexed by that door's own {@code
+     *  roleIndex} within its Tunnel group. */
+    public WyrldInstanceRecord withTunnelSpawns(List<BlockPos> spawns) {
+        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, exitBindings, spawns);
+    }
+
+    public Optional<BlockPos> tunnelSpawn(int roleIndex) {
+        return roleIndex >= 0 && roleIndex < tunnelSpawns.size() ? Optional.ofNullable(tunnelSpawns.get(roleIndex)) : Optional.empty();
     }
 
     public Optional<net.minecraft.core.GlobalPos> exitDestinationFor(BlockPos localExitPos) {

@@ -236,35 +236,44 @@ public final class TinyWyrlds {
         }
     }
 
+    /** One real-world door to place as part of a Tunnel group -- see {@link #createTunnelDoorGroup}. */
+    public record TunnelDoorSpec(ServerLevel level, BlockPos pos, Direction facing) {
+    }
+
     /**
-     * Places both real-world ends of a Tunnel at once -- see {@code
+     * Places every real-world door of a Tunnel at once -- see {@code
      * generate.OneOffGenerator#generateTunnel}'s own doc for the full mechanic. {@code recipeName}
      * must already name (or be ensured via {@link #ensureRecipeExists}-style bootstrap) a {@code
      * WyrldRecipe} with {@code tunnel = true} and {@code minRooms == maxRooms} (the exact room
-     * count between the two ends). {@code lifecycle} is the caller's own choice per this specific
-     * pairing (see {@link WyrldLifecycle}'s own doc -- not a fixed property of the recipe). Nothing
+     * count between every door). {@code lifecycle} is the caller's own choice per this specific
+     * group (see {@link WyrldLifecycle}'s own doc -- not a fixed property of the recipe). Nothing
      * is generated yet by this call -- the connecting Wyrld itself is built lazily, the first time
-     * either door is actually used (explicit user instruction, "whichever is easier/less
+     * any door in the group is actually used (explicit user instruction, "whichever is easier/less
      * performance heavy on the server").
      *
-     * <p>{@code facingA}/{@code facingB} orient each door's own placeholder visual to face back
-     * toward whatever direction makes sense for its own placement (e.g. outward from the room it
-     * sits in) -- this call doesn't try to guess one from the two positions.
+     * <p>Widened from a fixed two-door pair to an arbitrary-length {@code doors} list, 2026-11-12,
+     * per explicit user spec: "certain settlements could have multiple entrances to the same
+     * underground sewer system... multiple entrances to, say, a mountain mineshaft themed tunnel."
+     * Each spec's own {@code facing} orients that door's placeholder visual to face back toward
+     * whatever direction makes sense for its own placement (e.g. outward from the room it sits in)
+     * -- this call doesn't try to guess one from the other doors' positions. Requires at least 2
+     * doors.
      */
-    public static void createTunnelDoorPair(ServerLevel levelA, BlockPos posA, Direction facingA,
-                                              ServerLevel levelB, BlockPos posB, Direction facingB,
-                                              String recipeName, WyrldLifecycle lifecycle) {
-        UUID pairId = UUID.randomUUID();
-        GlobalPos globalA = GlobalPos.of(levelA.dimension(), posA);
-        GlobalPos globalB = GlobalPos.of(levelB.dimension(), posB);
-
-        levelA.setBlock(posA, ModBlocks.TUNNEL_DOOR.get().defaultBlockState().setValue(TunnelDoorBlock.FACING, facingA), 3);
-        if (levelA.getBlockEntity(posA) instanceof TunnelDoorBlockEntity doorA) {
-            doorA.configure(pairId, true, globalB, recipeName, lifecycle);
+    public static void createTunnelDoorGroup(List<TunnelDoorSpec> doors, String recipeName, WyrldLifecycle lifecycle) {
+        if (doors.size() < 2) {
+            throw new IllegalArgumentException("A Tunnel needs at least 2 real-world doors, got " + doors.size());
         }
-        levelB.setBlock(posB, ModBlocks.TUNNEL_DOOR.get().defaultBlockState().setValue(TunnelDoorBlock.FACING, facingB), 3);
-        if (levelB.getBlockEntity(posB) instanceof TunnelDoorBlockEntity doorB) {
-            doorB.configure(pairId, false, globalA, recipeName, lifecycle);
+        UUID groupId = UUID.randomUUID();
+        List<GlobalPos> groupPositions = doors.stream()
+                .map(spec -> GlobalPos.of(spec.level().dimension(), spec.pos()))
+                .toList();
+
+        for (int i = 0; i < doors.size(); i++) {
+            TunnelDoorSpec spec = doors.get(i);
+            spec.level().setBlock(spec.pos(), ModBlocks.TUNNEL_DOOR.get().defaultBlockState().setValue(TunnelDoorBlock.FACING, spec.facing()), 3);
+            if (spec.level().getBlockEntity(spec.pos()) instanceof TunnelDoorBlockEntity door) {
+                door.configure(groupId, i, groupPositions, recipeName, lifecycle);
+            }
         }
     }
 }

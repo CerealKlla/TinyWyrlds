@@ -557,7 +557,7 @@ public final class OneOffGenerator {
      *     ENTRANCE to anything else), (when {@code roomCount > 0}) no ROOM is saved, or the second
      *     ENTRANCE genuinely never finds anywhere left to attach.
      */
-    private static TunnelPlanResult planTunnelPlacements(int roomCount, List<String> requiredTags) {
+    private static TunnelPlanResult planTunnelPlacements(int roomCount, List<String> requiredTags, int entranceCount) {
         List<WyrldPrintRecord> rooms = WyrldPrintStorage.get().listAll().stream()
                 .filter(r -> r.type() == WyrldPrintType.ROOM).filter(r -> matchesTags(r, requiredTags)).toList();
         List<WyrldPrintRecord> connectors = WyrldPrintStorage.get().listAll().stream()
@@ -576,25 +576,27 @@ public final class OneOffGenerator {
         Map<LocalPos, Boolean> occupied = new HashMap<>();
         List<Frontier> unresolvedFrontiers = new ArrayList<>();
 
-        Placement entranceA = new Placement(entrances.get(random.nextInt(entrances.size())), Rotation.NONE, 0, 0, 0);
-        placements.add(entranceA);
-        occupied.putAll(cellStates(entranceA));
-        addFrontiers(openFrontiers, entranceA);
-        logPlacement(entranceA);
+        Placement firstEntrance = new Placement(entrances.get(random.nextInt(entrances.size())), Rotation.NONE, 0, 0, 0);
+        placements.add(firstEntrance);
+        occupied.putAll(cellStates(firstEntrance));
+        addFrontiers(openFrontiers, firstEntrance);
+        logPlacement(firstEntrance);
+
+        List<Placement> entranceAnchors = new ArrayList<>();
+        entranceAnchors.add(firstEntrance);
 
         int roomsPlaced = 0;
-        Placement entranceB = null;
         int attempts = 0;
-        int attemptBudget = Math.max(50, (roomCount + 1) * 60);
-        while ((roomsPlaced < roomCount || entranceB == null) && !openFrontiers.isEmpty() && attempts < attemptBudget) {
+        int attemptBudget = Math.max(50, (roomCount + entranceCount) * 60);
+        while ((roomsPlaced < roomCount || entranceAnchors.size() < entranceCount) && !openFrontiers.isEmpty() && attempts < attemptBudget) {
             attempts++;
             Frontier frontier = openFrontiers.remove(random.nextInt(openFrontiers.size()));
 
             Placement placed = null;
-            if (entranceB == null && roomsPlaced >= roomCount) {
+            if (entranceAnchors.size() < entranceCount && roomsPlaced >= roomCount) {
                 placed = tryPlace(frontier, shuffled(entrances, random), occupied, random);
                 if (placed != null) {
-                    entranceB = placed;
+                    entranceAnchors.add(placed);
                 }
             }
             boolean frontierOwnedByRoom = frontier.ownerType() == WyrldPrintType.ROOM;
@@ -622,27 +624,25 @@ public final class OneOffGenerator {
             logPlacement(placed);
         }
 
-        // The second ENTRANCE is non-negotiable -- unlike an ordinary dungeon's room target, which
-        // is allowed to fall short if growth runs dry -- so if it never landed opportunistically
-        // above, force it onto whatever's still open before giving up entirely.
-        if (entranceB == null) {
-            while (!openFrontiers.isEmpty()) {
-                Frontier frontier = openFrontiers.remove(random.nextInt(openFrontiers.size()));
-                Placement placed = tryPlace(frontier, shuffled(entrances, random), occupied, random);
-                if (placed == null) {
-                    unresolvedFrontiers.add(frontier);
-                    continue;
-                }
-                entranceB = placed;
-                placements.add(placed);
-                occupied.putAll(cellStates(placed));
-                addFrontiers(openFrontiers, placed); // always zero new frontiers -- only one entrance point is ever consumed per attempt here.
-                logPlacement(placed);
-                break;
+        // Every remaining required ENTRANCE is non-negotiable -- unlike an ordinary dungeon's room
+        // target, which is allowed to fall short if growth runs dry -- so if fewer than
+        // entranceCount landed opportunistically above, force the rest onto whatever's still open
+        // before giving up entirely.
+        while (entranceAnchors.size() < entranceCount && !openFrontiers.isEmpty()) {
+            Frontier frontier = openFrontiers.remove(random.nextInt(openFrontiers.size()));
+            Placement placed = tryPlace(frontier, shuffled(entrances, random), occupied, random);
+            if (placed == null) {
+                unresolvedFrontiers.add(frontier);
+                continue;
             }
+            entranceAnchors.add(placed);
+            placements.add(placed);
+            occupied.putAll(cellStates(placed));
+            addFrontiers(openFrontiers, placed); // always zero new frontiers -- only one entrance point is ever consumed per attempt here.
+            logPlacement(placed);
         }
-        if (entranceB == null) {
-            return null; // genuinely nowhere left for the second entrance to attach -- can't call this a Tunnel.
+        if (entranceAnchors.size() < entranceCount) {
+            return null; // genuinely nowhere left for every required entrance to attach -- can't call this a Tunnel.
         }
 
         // Closing pass: identical to planPlacements' own -- every remaining open frontier gets a
@@ -668,7 +668,7 @@ public final class OneOffGenerator {
         }
 
         Map<LocalPos, BlockState> doorSeals = sealUnresolvedFrontiers(unresolvedFrontiers, placements);
-        return new TunnelPlanResult(placements, entranceA, entranceB, doorSeals);
+        return new TunnelPlanResult(placements, entranceAnchors, doorSeals);
     }
 
     /** Identical sealing logic to {@link #planPlacements}'s own door-sealing pass (see its doc for
@@ -700,44 +700,47 @@ public final class OneOffGenerator {
         return doorSeals;
     }
 
-    private record TunnelPlanResult(List<Placement> placements, Placement entranceA, Placement entranceB,
+    private record TunnelPlanResult(List<Placement> placements, List<Placement> entranceAnchors,
                                      Map<LocalPos, BlockState> doorSeals) {
     }
 
     /** @param instance the generated Tunnel's own Wyrld, already persisted with its lifecycle and
-     *  both exit bindings baked in (see {@code instance.WyrldManager#resolveExitDestination}).
-     *  {@code spawnA}/{@code spawnB} are where a player lands entering through each real-world
-     *  door respectively -- the caller (the door's own right-click handler) picks whichever one
-     *  matches which door was actually clicked. */
-    public record TunnelGenerateResult(WyrldInstanceRecord instance, BlockPos spawnA, BlockPos spawnB) {
+     *  every exit binding baked in (see {@code instance.WyrldManager#resolveExitDestination}).
+     *  {@code spawns} is where a player lands entering through each real-world door, indexed by
+     *  that door's own {@code roleIndex} -- the caller (the door's own right-click handler) picks
+     *  whichever entry matches which door was actually clicked. */
+    public record TunnelGenerateResult(WyrldInstanceRecord instance, List<BlockPos> spawns) {
     }
 
     /**
-     * The real entry point for a Tunnel -- builds the whole thing (both anchors, the connecting
-     * chain, and both exit-portal-to-main-world bindings) in one generation. {@code recipe.minRooms()}
+     * The real entry point for a Tunnel -- builds the whole thing (every anchor, the connecting
+     * chain, and every exit-portal-to-main-world binding) in one generation. {@code recipe.minRooms()}
      * is read as the exact room count ({@code recipe.tunnel()} requires {@code minRooms ==
      * maxRooms}, enforced by the caller when the recipe is authored, not re-checked here).
-     * {@code destA}/{@code destB} are the two real main-world door positions this Tunnel connects --
-     * baked into the generated instance's own exit bindings so each end's exit always leads back to
-     * its own door, never "wherever the player entered from" (see {@code WyrldExitBinding}'s own
-     * doc for the explicit user reasoning). @return {@code null} if no valid chain could be built
-     * (see {@link #planTunnelPlacements}). */
+     * {@code dests} is the list of real main-world door positions this Tunnel connects, one per
+     * entrance anchor in generation order -- baked into the generated instance's own exit bindings
+     * so each end's exit always leads back to its own door, never "wherever the player entered
+     * from" (see {@code WyrldExitBinding}'s own doc for the explicit user reasoning). Widened from a
+     * fixed two-door {@code destA}/{@code destB} pair to an arbitrary-length list, 2026-11-12, per
+     * explicit user spec: "certain settlements could have multiple entrances to the same
+     * underground sewer system." @return {@code null} if no valid chain could be built (see
+     * {@link #planTunnelPlacements}). */
     public static TunnelGenerateResult generateTunnel(MinecraftServer server, WyrldRecipe recipe,
-                                                        net.minecraft.core.GlobalPos destA, net.minecraft.core.GlobalPos destB,
+                                                        List<net.minecraft.core.GlobalPos> dests,
                                                         com.github.cerealklla.tinywyrlds.instance.WyrldLifecycle lifecycle) {
-        TunnelPlanResult plan = planTunnelPlacements(recipe.minRooms(), recipe.tags());
+        TunnelPlanResult plan = planTunnelPlacements(recipe.minRooms(), recipe.tags(), dests.size());
         if (plan == null) {
             return null;
         }
         com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
-                "OneOffGenerator: generated Tunnel '{}' -- {} piece(s), {} room(s) between two entrances, lifecycle={}",
-                recipe.name(), plan.placements().size(), recipe.minRooms(), lifecycle);
-        return stampTunnel(server, plan, destA, destB, lifecycle, recipe);
+                "OneOffGenerator: generated Tunnel '{}' -- {} piece(s), {} room(s) between {} entrances, lifecycle={}",
+                recipe.name(), plan.placements().size(), recipe.minRooms(), dests.size(), lifecycle);
+        return stampTunnel(server, plan, dests, lifecycle, recipe);
     }
 
     @SuppressWarnings("deprecation")
     private static TunnelGenerateResult stampTunnel(MinecraftServer server, TunnelPlanResult plan,
-                                                      net.minecraft.core.GlobalPos destA, net.minecraft.core.GlobalPos destB,
+                                                      List<net.minecraft.core.GlobalPos> dests,
                                                       com.github.cerealklla.tinywyrlds.instance.WyrldLifecycle lifecycle, WyrldRecipe recipe) {
         int minF = Integer.MAX_VALUE, maxF = Integer.MIN_VALUE, minL = Integer.MAX_VALUE, maxL = Integer.MIN_VALUE;
         for (Placement placement : plan.placements()) {
@@ -751,7 +754,7 @@ public final class OneOffGenerator {
         WyrldInstanceRecord instance = WyrldManager.createWyrld(server, (maxF - minF) + 2 * MARGIN, (maxL - minL) + 2 * MARGIN, lifecycle);
         ServerLevel level = server.getLevel(WyrldSpaceDimension.KEY);
         if (level == null) {
-            return new TunnelGenerateResult(instance, BlockPos.ZERO, BlockPos.ZERO);
+            return new TunnelGenerateResult(instance, java.util.Collections.nCopies(plan.entranceAnchors().size(), BlockPos.ZERO));
         }
         FreeRect inner = instance.innerRect();
         int worldForwardOffset = inner.x1() + MARGIN - minF;
@@ -792,38 +795,50 @@ public final class OneOffGenerator {
             level.setBlock(cell.pos(), cell.state(), 3);
         }
 
-        java.util.Set<LocalPos> cellsOfA = cellStates(plan.entranceA()).keySet();
-        List<BlockPos> exitCellsA = new ArrayList<>();
-        List<BlockPos> exitCellsB = new ArrayList<>();
+        List<java.util.Set<LocalPos>> anchorCellSets = new ArrayList<>();
+        for (Placement anchor : plan.entranceAnchors()) {
+            anchorCellSets.add(cellStates(anchor).keySet());
+        }
+        List<List<BlockPos>> exitCellsPerAnchor = new ArrayList<>();
+        for (int i = 0; i < anchorCellSets.size(); i++) {
+            exitCellsPerAnchor.add(new ArrayList<>());
+        }
         for (PendingCell cell : pending) {
             if (cell.state().getBlock() != ModBlocks.EXIT_PORTAL.get()) {
                 continue;
             }
-            (cellsOfA.contains(cell.localPos()) ? exitCellsA : exitCellsB).add(cell.pos());
+            for (int i = 0; i < anchorCellSets.size(); i++) {
+                if (anchorCellSets.get(i).contains(cell.localPos())) {
+                    exitCellsPerAnchor.get(i).add(cell.pos());
+                    break;
+                }
+            }
         }
-        spawnExitPortalPingMarkers(level, exitCellsA);
-        spawnExitPortalPingMarkers(level, exitCellsB);
+        for (List<BlockPos> exitCells : exitCellsPerAnchor) {
+            spawnExitPortalPingMarkers(level, exitCells);
+        }
 
         if (recipe != null) {
             populate(level, markerSpots, recipe);
         }
 
-        BlockPos spawnA = tunnelSpawnPos(plan.entranceA(), worldForwardOffset, worldLateralOffset).orElseGet(() ->
-                new BlockPos((int) Math.floor(inner.centerX()), instance.baselineY(), (int) Math.floor(inner.centerZ())));
-        BlockPos spawnB = tunnelSpawnPos(plan.entranceB(), worldForwardOffset, worldLateralOffset).orElseGet(() ->
-                new BlockPos((int) Math.floor(inner.centerX()), instance.baselineY(), (int) Math.floor(inner.centerZ())));
+        BlockPos genericCenter = new BlockPos((int) Math.floor(inner.centerX()), instance.baselineY(), (int) Math.floor(inner.centerZ()));
+        List<BlockPos> spawns = new ArrayList<>();
+        for (Placement anchor : plan.entranceAnchors()) {
+            spawns.add(tunnelSpawnPos(anchor, worldForwardOffset, worldLateralOffset).orElse(genericCenter));
+        }
 
         List<com.github.cerealklla.tinywyrlds.instance.WyrldExitBinding> bindings = new ArrayList<>();
-        for (BlockPos pos : exitCellsA) {
-            bindings.add(new com.github.cerealklla.tinywyrlds.instance.WyrldExitBinding(pos, destA));
+        for (int i = 0; i < exitCellsPerAnchor.size(); i++) {
+            net.minecraft.core.GlobalPos dest = dests.get(i);
+            for (BlockPos pos : exitCellsPerAnchor.get(i)) {
+                bindings.add(new com.github.cerealklla.tinywyrlds.instance.WyrldExitBinding(pos, dest));
+            }
         }
-        for (BlockPos pos : exitCellsB) {
-            bindings.add(new com.github.cerealklla.tinywyrlds.instance.WyrldExitBinding(pos, destB));
-        }
-        WyrldInstanceRecord finalInstance = instance.withExitBindings(bindings).withTunnelSpawns(spawnA, spawnB);
+        WyrldInstanceRecord finalInstance = instance.withExitBindings(bindings).withTunnelSpawns(spawns);
         com.github.cerealklla.tinywyrlds.space.WyrldSpaceData.get(server).putInstance(finalInstance);
 
-        return new TunnelGenerateResult(finalInstance, spawnA, spawnB);
+        return new TunnelGenerateResult(finalInstance, spawns);
     }
 
     private static Optional<BlockPos> tunnelSpawnPos(Placement anchor, int worldForwardOffset, int worldLateralOffset) {
