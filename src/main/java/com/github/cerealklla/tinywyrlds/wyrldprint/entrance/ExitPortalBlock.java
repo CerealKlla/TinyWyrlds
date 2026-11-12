@@ -65,10 +65,11 @@ public class ExitPortalBlock extends Block implements Portal {
     public static final MapCodec<ExitPortalBlock> CODEC = simpleCodec(ExitPortalBlock::new);
     public static final EnumProperty<Direction.Axis> AXIS = BlockStateProperties.HORIZONTAL_AXIS;
 
-    /** A brief "stand in it" delay before the real teleport fires, same spirit as vanilla's own
-     *  nether portal stand-timer (there, driven by a GameRule; here, just a short fixed constant --
-     *  this mod has no comparable rule to read). */
-    private static final int TRANSITION_TIME_TICKS = 20;
+    /** Explicit user correction, 2026-11-11: no "stand in it" delay at all -- teleport fires the
+     *  instant a player touches the portal, not after lingering in it. Originally a 20-tick
+     *  (1-second) delay mirroring vanilla's own nether portal stand-timer; this mod has no
+     *  comparable GameRule to read, and the user doesn't want the wait regardless. */
+    private static final int TRANSITION_TIME_TICKS = 0;
 
     public ExitPortalBlock(Properties properties) {
         super(properties);
