@@ -108,6 +108,11 @@ public final class OneOffGenerator {
      *  identical length" philosophy as the flat algorithm's own {@code minBranchLength}. */
     private static final int MAX_EXTRA_VARIANCE_HOPS = 3;
     private static final double EXTENSION_CHANCE = 0.35;
+    /** Same ratio Settlemynts' own {@code tunnel.TunnelFinalizer#BLOCKS_PER_ROOM} already uses to
+     *  size a Tunnel's overall room budget off its doors' real-world diameter -- reused here per
+     *  edge directly, instead of splitting a shared budget, after a live-tested 6-door Tunnel
+     *  proved that approach non-functional (see {@link #edgeTargetLength}'s own doc). */
+    private static final double BLOCKS_PER_ROOM_FOR_SHAPE = 50.0;
 
     /** @return the created Wyrld instance (plus its real spawn position, if an ENTRANCE was
      *  placed), or {@code null} if no ROOM/ENTRANCE WyrldPrints are saved at all. The real layout
@@ -604,9 +609,8 @@ public final class OneOffGenerator {
             List<WyrldPrintRecord> forkRooms = rooms.stream().filter(r -> r.points().size() > 2).toList();
             if (!forkRooms.isEmpty()) {
                 MergeNode tree = buildMergeTree(dests);
-                double totalEdgeWeight = totalEdgeWeight(tree);
                 for (int attempt = 0; attempt < SHAPE_ATTEMPTS; attempt++) {
-                    TunnelPlanResult shaped = tryShapedTunnelPlan(tree, totalEdgeWeight, roomCount, entranceCount,
+                    TunnelPlanResult shaped = tryShapedTunnelPlan(tree, entranceCount,
                             connectors, passThroughRooms, forkRooms, endcapRooms, entrances, RandomSource.create());
                     if (shaped != null) {
                         return shaped;
@@ -820,17 +824,30 @@ public final class OneOffGenerator {
         return 2 * node.mergeDistance() + totalEdgeWeight(node.left()) + totalEdgeWeight(node.right());
     }
 
-    /** The single formula every edge in the shaped tree uses to turn its own share of the real-
-     *  world proportions into a soft-minimum chain length, factored out so root-level and nested
-     *  forks can never drift out of sync with each other (real review finding -- this used to be
-     *  duplicated verbatim in two places). Guards against {@code totalEdgeWeight <= 0} (every real-
-     *  world door position coinciding, so every merge distance is 0) -- falls back to splitting
-     *  {@code roomCount} evenly rather than producing a silent {@code NaN}. */
-    private static int edgeTargetLength(int roomCount, double mergeDistance, double totalEdgeWeight) {
-        if (totalEdgeWeight <= 0) {
-            return roomCount / 2;
-        }
-        return (int) Math.round(roomCount * mergeDistance / totalEdgeWeight) / 2;
+    /** The single formula every edge in the shaped tree uses to turn its own real-world merge
+     *  distance into a soft-minimum chain length, factored out so root-level and nested forks can
+     *  never drift out of sync with each other (real review finding -- this used to be duplicated
+     *  verbatim in two places).
+     *
+     * <p><b>Reworked 2026-11-12</b> -- the original formula split the recipe's own shared
+     * {@code roomCount} budget across every edge in proportion to {@code mergeDistance /
+     * totalEdgeWeight}, then halved that share. Confirmed broken via a live 6-door Tunnel
+     * (`min_rooms: 3`): with a tiny shared budget spread across 5 tree edges, EVERY edge's
+     * proportional share rounded to 0 or 1 before the halving step, and halving 1 via integer
+     * division is 0 too -- so every edge's floor was 0 regardless of real-world distance, making
+     * the whole mechanism a no-op and the layout's shape purely random extra-hop noise (exactly
+     * the user's live complaint: "I don't think your implementation to attempt to match
+     * entrances/exits is very accurate at all").
+     *
+     * <p>Fixed by dropping the shared-budget split entirely -- each edge now converts its OWN real
+     * {@code mergeDistance} straight into a room count via the same {@code 1 room per 50 blocks}
+     * ratio Settlemynts' {@code tunnel.TunnelFinalizer} already uses to size a Tunnel's overall
+     * room budget off its doors' diameter ({@link #BLOCKS_PER_ROOM_FOR_SHAPE}), then halves it (same
+     * "a minimum, not a forced length" philosophy as before). No edge ever has to compete with its
+     * siblings for a slice of a too-small shared number, so a short real-world hop can still
+     * legitimately floor at 0 while a long one gets a real, distinct, non-zero floor. */
+    private static int edgeTargetLength(double mergeDistance) {
+        return (int) Math.round(mergeDistance / BLOCKS_PER_ROOM_FOR_SHAPE) / 2;
     }
 
     /**
@@ -853,14 +870,15 @@ public final class OneOffGenerator {
      * above), since starting there means every other node is reached by walking strictly downward,
      * with no need to ever walk back "up" past an ancestor.
      *
-     * <p>Each edge's own target chain length is {@code roomCount * mergeDistance / totalEdgeWeight}
-     * -- the fork's own merge distance split evenly in proportion across both of its children's
-     * edges (so two close-together doors sharing one small, nearby merge both get short branches
-     * off the SAME fork, while a door that only merges in at the root gets routed down one long,
-     * separate corridor; see this method's own class doc for the worked "L" example) -- then halved
-     * again, same "a minimum, not a forced/identical length" philosophy the flat algorithm's own
-     * {@code minBranchLength} already established, so ordinary random growth still adds natural
-     * variance on top rather than every branch coming out a rigid, identical length.
+     * <p>Each edge's own target chain length comes straight from its own real-world
+     * {@code mergeDistance} (see {@link #edgeTargetLength}'s own doc for why this is no longer a
+     * shared-budget split across the tree's edges) -- so two close-together doors sharing one
+     * small, nearby merge both get short branches off the SAME fork, while a door that only merges
+     * in at the root gets routed down one long, separate corridor (see this method's own class doc
+     * for the worked "L" example) -- then halved, same "a minimum, not a forced/identical length"
+     * philosophy the flat algorithm's own {@code minBranchLength} already established, so ordinary
+     * random growth still adds natural variance on top rather than every branch coming out a rigid,
+     * identical length.
      *
      * <p>Deliberately bails out (returns {@code null}) rather than falling back to anything
      * mid-attempt on any placement failure -- a half-finished shaped layout is worse than none at
@@ -868,7 +886,7 @@ public final class OneOffGenerator {
      * falls back to the proven shape-blind algorithm if every attempt fails. Shape is a cosmetic
      * improvement; a Tunnel failing to generate at all is never an acceptable price for it.
      */
-    private static TunnelPlanResult tryShapedTunnelPlan(MergeNode tree, double totalEdgeWeight, int roomCount, int entranceCount,
+    private static TunnelPlanResult tryShapedTunnelPlan(MergeNode tree, int entranceCount,
             List<WyrldPrintRecord> connectors, List<WyrldPrintRecord> passThroughRooms, List<WyrldPrintRecord> forkRooms,
             List<WyrldPrintRecord> endcapRooms, List<WyrldPrintRecord> entrances, RandomSource random) {
         List<Placement> placements = new ArrayList<>();
@@ -881,6 +899,7 @@ public final class OneOffGenerator {
         placements.add(rootFork);
         occupied.putAll(cellStates(rootFork));
         roomsPlaced[0]++;
+        logPlacement(rootFork);
         List<Frontier> rootForkFrontiers = new ArrayList<>();
         addFrontiers(rootForkFrontiers, rootFork, 0);
         if (rootForkFrontiers.size() < 2) {
@@ -891,13 +910,13 @@ public final class OneOffGenerator {
             leftoverFrontiers.addAll(shuffledRootChildren.subList(2, shuffledRootChildren.size()));
         }
 
-        int rootChildTarget = edgeTargetLength(roomCount, tree.mergeDistance(), totalEdgeWeight);
-        boolean leftOk = growShapedEdge(tree.left(), shuffledRootChildren.get(0), rootChildTarget, totalEdgeWeight, roomCount,
+        int rootChildTarget = edgeTargetLength(tree.mergeDistance());
+        boolean leftOk = growShapedEdge(tree.left(), shuffledRootChildren.get(0), rootChildTarget,
                 connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
         if (!leftOk) {
             return null;
         }
-        boolean rightOk = growShapedEdge(tree.right(), shuffledRootChildren.get(1), rootChildTarget, totalEdgeWeight, roomCount,
+        boolean rightOk = growShapedEdge(tree.right(), shuffledRootChildren.get(1), rootChildTarget,
                 connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
         if (!rightOk) {
             return null;
@@ -939,7 +958,7 @@ public final class OneOffGenerator {
      *  2-door rooms) -- a fork may only ever appear exactly where the tree says one belongs, or the
      *  whole point of this method (a layout that actually matches the tree's own shape) is lost.
      *  @return {@code false} on any placement failure -- the caller abandons this whole attempt. */
-    private static boolean growShapedEdge(MergeNode node, Frontier entryFrontier, int targetLength, double totalEdgeWeight, int roomCount,
+    private static boolean growShapedEdge(MergeNode node, Frontier entryFrontier, int targetLength,
             List<WyrldPrintRecord> connectors, List<WyrldPrintRecord> passThroughRooms, List<WyrldPrintRecord> forkRooms,
             List<Placement> placements, Map<LocalPos, Boolean> occupied, Placement[] entranceByIndex, List<WyrldPrintRecord> entrances,
             List<Frontier> leftoverFrontiers, int[] roomsPlaced, RandomSource random) {
@@ -970,6 +989,7 @@ public final class OneOffGenerator {
             }
             placements.add(placed);
             occupied.putAll(cellStates(placed));
+            logPlacement(placed);
             if (placed.record().type() == WyrldPrintType.ROOM) {
                 roomsPlaced[0]++;
             }
@@ -996,6 +1016,7 @@ public final class OneOffGenerator {
             }
             placements.add(entrancePlacement);
             occupied.putAll(cellStates(entrancePlacement));
+            logPlacement(entrancePlacement);
             entranceByIndex[node.leafEntranceIndex()] = entrancePlacement;
             return true;
         }
@@ -1006,6 +1027,7 @@ public final class OneOffGenerator {
         }
         placements.add(fork);
         occupied.putAll(cellStates(fork));
+        logPlacement(fork);
         roomsPlaced[0]++;
         List<Frontier> forkChildren = new ArrayList<>();
         addFrontiers(forkChildren, fork, frontier.branchDepth());
@@ -1016,13 +1038,13 @@ public final class OneOffGenerator {
         if (shuffledChildren.size() > 2) {
             leftoverFrontiers.addAll(shuffledChildren.subList(2, shuffledChildren.size()));
         }
-        int childTarget = edgeTargetLength(roomCount, node.mergeDistance(), totalEdgeWeight);
-        boolean leftOk = growShapedEdge(node.left(), shuffledChildren.get(0), childTarget, totalEdgeWeight, roomCount,
+        int childTarget = edgeTargetLength(node.mergeDistance());
+        boolean leftOk = growShapedEdge(node.left(), shuffledChildren.get(0), childTarget,
                 connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
         if (!leftOk) {
             return false;
         }
-        return growShapedEdge(node.right(), shuffledChildren.get(1), childTarget, totalEdgeWeight, roomCount,
+        return growShapedEdge(node.right(), shuffledChildren.get(1), childTarget,
                 connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
     }
 
