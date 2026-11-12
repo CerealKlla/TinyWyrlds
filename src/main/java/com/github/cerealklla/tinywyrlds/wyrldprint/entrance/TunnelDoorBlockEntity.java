@@ -67,6 +67,12 @@ public class TunnelDoorBlockEntity extends BlockEntity {
      *  its own doc), so an admin's later edit (e.g. adding a tag) is still picked up normally --
      *  this backup copy only ever gets used when the live recipe is actually missing. */
     private WyrldRecipe recipeBackup;
+    /** A legacy single {@code PartnerPos} read back by {@link #loadAdditional}, held here until
+     *  {@link #onLoad} can actually resolve this door's own dimension to rebuild the equivalent
+     *  2-element {@link #groupPositions} list -- {@code level} is still null inside {@code
+     *  loadAdditional} itself (it's only set afterward, by {@code LevelChunk
+     *  #addAndRegisterBlockEntity}), so the migration can't run there. */
+    private GlobalPos pendingLegacyPartnerPos;
 
     public TunnelDoorBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.TUNNEL_DOOR.get(), pos, state);
@@ -129,9 +135,31 @@ public class TunnelDoorBlockEntity extends BlockEntity {
             TinyWyrldsMod.LOGGER.warn("TunnelDoorBlockEntity: recipe '{}' has no valid ENTRANCE/CONNECTOR/ROOM content to build Tunnel group {} from.", recipeName, groupId);
             return;
         }
+        if (roleIndex < 0 || roleIndex >= result.spawns().size()) {
+            TinyWyrldsMod.LOGGER.warn("TunnelDoorBlockEntity: freshly-generated Tunnel group {} has {} spawn point(s), but this door's roleIndex is {} -- state is out of sync.", groupId, result.spawns().size(), roleIndex);
+            return;
+        }
         WyrldSpaceData.get(server).putTunnelAssignment(assignmentKey, result.instance().id());
-        BlockPos spawn = result.spawns().get(roleIndex);
-        WyrldManager.enterAt(player, result.instance().id(), spawn);
+        WyrldManager.enterAt(player, result.instance().id(), result.spawns().get(roleIndex));
+    }
+
+    @Override
+    public void onLoad() {
+        super.onLoad();
+        if (pendingLegacyPartnerPos != null && level != null) {
+            GlobalPos myPos = GlobalPos.of(level.dimension(), worldPosition);
+            List<GlobalPos> rebuilt = new ArrayList<>();
+            if (roleIndex == 0) {
+                rebuilt.add(myPos);
+                rebuilt.add(pendingLegacyPartnerPos);
+            } else {
+                rebuilt.add(pendingLegacyPartnerPos);
+                rebuilt.add(myPos);
+            }
+            groupPositions = rebuilt;
+            pendingLegacyPartnerPos = null;
+            setChanged();
+        }
     }
 
     @Override
@@ -141,24 +169,13 @@ public class TunnelDoorBlockEntity extends BlockEntity {
         roleIndex = input.getIntOr("RoleIndex", input.getBooleanOr("RoleA", true) ? 0 : 1);
         List<GlobalPos> loaded = input.read("GroupPositions", GlobalPos.CODEC.listOf()).orElse(null);
         if (loaded == null) {
-            // Pre-generalization save (single PartnerPos, implicit 2-door group) -- reconstruct the
-            // equivalent 2-element group list from the old fields so an already-placed Tunnel door
-            // keeps working with no manual migration.
-            GlobalPos partnerPos = input.read("PartnerPos", GlobalPos.CODEC).orElse(null);
-            if (partnerPos != null && level != null) {
-                GlobalPos myPos = GlobalPos.of(level.dimension(), worldPosition);
-                List<GlobalPos> rebuilt = new ArrayList<>();
-                if (roleIndex == 0) {
-                    rebuilt.add(myPos);
-                    rebuilt.add(partnerPos);
-                } else {
-                    rebuilt.add(partnerPos);
-                    rebuilt.add(myPos);
-                }
-                loaded = rebuilt;
-            } else {
-                loaded = List.of();
-            }
+            // Pre-generalization save (single PartnerPos, implicit 2-door group) -- `level` isn't
+            // set yet here, so stash the raw value and let onLoad() (called once this entity
+            // actually has a level) do the real reconstruction.
+            pendingLegacyPartnerPos = input.read("PartnerPos", GlobalPos.CODEC).orElse(null);
+            loaded = List.of();
+        } else {
+            pendingLegacyPartnerPos = null;
         }
         groupPositions = loaded;
         recipeName = input.getStringOr("RecipeName", "");

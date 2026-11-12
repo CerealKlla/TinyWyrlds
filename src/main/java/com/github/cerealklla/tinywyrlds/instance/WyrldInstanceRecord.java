@@ -1,5 +1,6 @@
 package com.github.cerealklla.tinywyrlds.instance;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -43,8 +44,22 @@ public record WyrldInstanceRecord(UUID id, FreeRect fullRect, FreeRect innerRect
             Codec.LONG.fieldOf("last_active_game_time").forGetter(WyrldInstanceRecord::lastActiveGameTime),
             WyrldLifecycle.CODEC.optionalFieldOf("lifecycle", WyrldLifecycle.INSTANCED).forGetter(WyrldInstanceRecord::lifecycle),
             WyrldExitBinding.CODEC.listOf().optionalFieldOf("exit_bindings", List.of()).forGetter(WyrldInstanceRecord::exitBindings),
-            BlockPos.CODEC.listOf().optionalFieldOf("tunnel_spawns", List.of()).forGetter(WyrldInstanceRecord::tunnelSpawns)
-    ).apply(instance, WyrldInstanceRecord::new));
+            BlockPos.CODEC.listOf().optionalFieldOf("tunnel_spawns", List.of()).forGetter(WyrldInstanceRecord::tunnelSpawns),
+            // Pre-generalization save (fixed tunnel_spawn_a/tunnel_spawn_b pair, 2026-11-11) --
+            // these two never get written again (see the getters below), only read back once to
+            // rebuild an equivalent tunnel_spawns list for an already-persisted Tunnel instance.
+            BlockPos.CODEC.optionalFieldOf("tunnel_spawn_a").forGetter(r -> Optional.<BlockPos>empty()),
+            BlockPos.CODEC.optionalFieldOf("tunnel_spawn_b").forGetter(r -> Optional.<BlockPos>empty())
+    ).apply(instance, (id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, exitBindings, tunnelSpawns, legacySpawnA, legacySpawnB) -> {
+        List<BlockPos> resolvedSpawns = tunnelSpawns;
+        if (resolvedSpawns.isEmpty() && (legacySpawnA.isPresent() || legacySpawnB.isPresent())) {
+            List<BlockPos> rebuilt = new ArrayList<>();
+            legacySpawnA.ifPresent(rebuilt::add);
+            legacySpawnB.ifPresent(rebuilt::add);
+            resolvedSpawns = rebuilt;
+        }
+        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, exitBindings, resolvedSpawns);
+    }));
 
     public WyrldInstanceRecord withState(WyrldState newState, long gameTime) {
         return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, newState, gameTime, lifecycle, exitBindings, tunnelSpawns);
