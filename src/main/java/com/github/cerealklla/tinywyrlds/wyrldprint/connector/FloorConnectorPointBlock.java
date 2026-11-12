@@ -38,16 +38,16 @@ public class FloorConnectorPointBlock extends TrapDoorBlock {
         ConnectorPointFill.fillFloor(level, pos, size);
     }
 
-    /** Symmetric counterpart of {@link #setPlacedBy}'s fill -- see {@code WallConnectorPointBlock}'s
-     *  own doc for the live report that prompted this. No {@code HALF} property here (single
-     *  block), so no double-fire guard needed. */
+    /** Symmetric counterpart of {@link #setPlacedBy}'s fill -- see {@code ConnectorArrowBlock}'s
+     *  own doc for the live report that originally prompted this. No {@code HALF} property here
+     *  (single block), so no double-fire guard needed. */
     @Override
     protected void affectNeighborsAfterRemoval(BlockState state, ServerLevel level, BlockPos pos, boolean movedByPiston) {
         super.affectNeighborsAfterRemoval(state, level, pos, movedByPiston);
         ConnectorPointFill.clearFloor(level, pos, size);
     }
 
-    /** The "purple glow effect" -- see {@code WallConnectorPointBlock}'s own doc. */
+    /** The "purple glow effect" -- see {@code ConnectorArrowBlock}'s own doc. */
     @Override
     public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
         if (random.nextInt(8) != 0) {

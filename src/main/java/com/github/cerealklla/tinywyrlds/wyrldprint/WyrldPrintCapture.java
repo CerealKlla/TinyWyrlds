@@ -7,15 +7,14 @@ import java.util.Map;
 import java.util.Optional;
 
 import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
+import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorArrowBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorPointSize;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.FloorConnectorPointBlock;
-import com.github.cerealklla.tinywyrlds.wyrldprint.connector.WallConnectorPointBlock;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
 /**
  * Scans the WyrldPrint crafting zone's current content into a {@link WyrldPrintRecord}. No
@@ -36,9 +35,8 @@ public final class WyrldPrintCapture {
         int minY = WyrldManager.BASELINE_Y - WyrldPrintArea.CAPTURE_BELOW_BASELINE;
         int maxY = WyrldManager.BASELINE_Y + WyrldPrintArea.CAPTURE_ABOVE_BASELINE;
 
-        // Pass 1: find every connector point's lower/base cell (wall points track their own lower
-        // half only, to avoid double-detecting the same point at its upper half too), plus any
-        // Spawn Location marker.
+        // Pass 1: find every connector point (both wall and floor points are single-cell, no
+        // upper/lower half to worry about double-detecting), plus any Spawn Location marker.
         List<DetectedPoint> detectedPoints = new ArrayList<>();
         List<BlockPos> detectedSpawns = new ArrayList<>();
         for (int x = WyrldPrintArea.CRAFT_MIN_X; x < WyrldPrintArea.CRAFT_MAX_X; x++) {
@@ -46,10 +44,8 @@ public final class WyrldPrintCapture {
                 for (int y = minY; y <= maxY; y++) {
                     BlockPos pos = new BlockPos(x, y, z);
                     BlockState state = level.getBlockState(pos);
-                    if (state.getBlock() instanceof WallConnectorPointBlock wall) {
-                        if (state.getValue(WallConnectorPointBlock.HALF) == DoubleBlockHalf.LOWER) {
-                            detectedPoints.add(new DetectedPoint(pos, true, wall.size(), state.getValue(WallConnectorPointBlock.FACING)));
-                        }
+                    if (state.getBlock() instanceof ConnectorArrowBlock wall) {
+                        detectedPoints.add(new DetectedPoint(pos, true, wall.size(), state.getValue(ConnectorArrowBlock.FACING)));
                     } else if (state.getBlock() instanceof FloorConnectorPointBlock floor) {
                         detectedPoints.add(new DetectedPoint(pos, false, floor.size(), null));
                     } else if (state.getBlock() instanceof SpawnLocationBlock) {

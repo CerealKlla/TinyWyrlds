@@ -5,9 +5,9 @@ import java.util.Map;
 
 import com.github.cerealklla.tinywyrlds.TinyWyrldsMod;
 import com.github.cerealklla.tinywyrlds.wyrldprint.SpawnLocationBlock;
+import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorArrowBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorPointSize;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.FloorConnectorPointBlock;
-import com.github.cerealklla.tinywyrlds.wyrldprint.connector.WallConnectorPointBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.ExitPortalBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.TunnelDoorBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.interactive.TaggedButtonBlock;
@@ -25,10 +25,11 @@ import net.minecraft.world.level.material.PushReaction;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
-/** The six Connector Point blocks -- see {@code wyrldprint.connector.WallConnectorPointBlock}/
- *  {@code FloorConnectorPointBlock}'s own docs. Properties mirror vanilla's real {@code oak_door}/
- *  {@code oak_trapdoor} registration exactly (same strength/sound/occlusion), since these
- *  genuinely are a {@code DoorBlock}/{@code TrapDoorBlock} subclass, not just a lookalike. */
+/** The six Connector Point blocks -- see {@code wyrldprint.connector.ConnectorArrowBlock}/
+ *  {@code FloorConnectorPointBlock}'s own docs. Floor points genuinely are a {@code TrapDoorBlock}
+ *  subclass (no facing ambiguity there -- straight up); wall points used to be a {@code DoorBlock}
+ *  subclass too, but that was replaced 2026-11-11 with a plain thin arrow block after a real
+ *  generation bug traced to a door's facing giving no visual cue which way was "outward". */
 public final class ModBlocks {
 
     private ModBlocks() {
@@ -36,9 +37,9 @@ public final class ModBlocks {
 
     public static final DeferredRegister.Blocks BLOCKS = DeferredRegister.createBlocks(TinyWyrldsMod.MODID);
 
-    public static final DeferredBlock<WallConnectorPointBlock> CONNECTOR_POINT_WALL_SMALL = registerWall("connector_point_wall_small", ConnectorPointSize.SMALL);
-    public static final DeferredBlock<WallConnectorPointBlock> CONNECTOR_POINT_WALL_MEDIUM = registerWall("connector_point_wall_medium", ConnectorPointSize.MEDIUM);
-    public static final DeferredBlock<WallConnectorPointBlock> CONNECTOR_POINT_WALL_LARGE = registerWall("connector_point_wall_large", ConnectorPointSize.LARGE);
+    public static final DeferredBlock<ConnectorArrowBlock> CONNECTOR_POINT_WALL_SMALL = registerWall("connector_point_wall_small", ConnectorPointSize.SMALL);
+    public static final DeferredBlock<ConnectorArrowBlock> CONNECTOR_POINT_WALL_MEDIUM = registerWall("connector_point_wall_medium", ConnectorPointSize.MEDIUM);
+    public static final DeferredBlock<ConnectorArrowBlock> CONNECTOR_POINT_WALL_LARGE = registerWall("connector_point_wall_large", ConnectorPointSize.LARGE);
 
     public static final DeferredBlock<FloorConnectorPointBlock> CONNECTOR_POINT_FLOOR_SMALL = registerFloor("connector_point_floor_small", ConnectorPointSize.SMALL);
     public static final DeferredBlock<FloorConnectorPointBlock> CONNECTOR_POINT_FLOOR_MEDIUM = registerFloor("connector_point_floor_medium", ConnectorPointSize.MEDIUM);
@@ -113,11 +114,12 @@ public final class ModBlocks {
         return result;
     }
 
-    private static DeferredBlock<WallConnectorPointBlock> registerWall(String id, ConnectorPointSize size) {
-        return BLOCKS.register(id, key -> new WallConnectorPointBlock(size, BlockBehaviour.Properties.of()
+    private static DeferredBlock<ConnectorArrowBlock> registerWall(String id, ConnectorPointSize size) {
+        return BLOCKS.register(id, key -> new ConnectorArrowBlock(size, BlockBehaviour.Properties.of()
                 .mapColor(MapColor.WOOD)
                 .strength(3.0F)
                 .noOcclusion()
+                .instabreak()
                 .pushReaction(PushReaction.DESTROY)
                 .setId(ResourceKey.create(Registries.BLOCK, key))));
     }

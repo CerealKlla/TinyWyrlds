@@ -21,9 +21,9 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintRecord;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintSpawn;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintStorage;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintType;
+import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorArrowBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.ConnectorPointSize;
 import com.github.cerealklla.tinywyrlds.wyrldprint.connector.FloorConnectorPointBlock;
-import com.github.cerealklla.tinywyrlds.wyrldprint.connector.WallConnectorPointBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerBlock;
 import com.github.cerealklla.tinywyrlds.wyrldprint.marker.MarkerKind;
 import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldEntityEntry;
@@ -1205,7 +1205,7 @@ public final class OneOffGenerator {
      *  join gets real neighboring material instead of air (see {@code planPlacements}'s own
      *  door-sealing pass). */
     private static boolean isConnectorArtifact(BlockState state) {
-        if (state.getBlock() instanceof WallConnectorPointBlock || state.getBlock() instanceof FloorConnectorPointBlock) {
+        if (state.getBlock() instanceof ConnectorArrowBlock || state.getBlock() instanceof FloorConnectorPointBlock) {
             return true;
         }
         for (ConnectorPointSize size : ConnectorPointSize.values()) {

@@ -23,11 +23,11 @@ public final class ConnectorPointFill {
     private ConnectorPointFill() {
     }
 
-    /** {@code doorBasePos} is the door's lower half. Width runs along the wall (perpendicular to
-     *  {@code facing}, via {@link Direction#getClockWise()}); height runs straight up from the
-     *  base, since the door already occupies the center column's own two cells (y=0, y=1). */
-    public static void fillWall(Level level, BlockPos doorBasePos, Direction facing, ConnectorPointSize size) {
-        forEachWallFootprintCell(doorBasePos, facing, size, pos -> {
+    /** {@code pointPos} is the connector point's own single cell. Width runs along the wall
+     *  (perpendicular to {@code facing}, via {@link Direction#getClockWise()}); height runs
+     *  straight up from the point's own cell. */
+    public static void fillWall(Level level, BlockPos pointPos, Direction facing, ConnectorPointSize size) {
+        forEachWallFootprintCell(pointPos, facing, size, pos -> {
             if (level.getBlockState(pos).isAir()) {
                 level.setBlock(pos, size.glassBlock().defaultBlockState(), 3);
             }
@@ -47,8 +47,8 @@ public final class ConnectorPointFill {
     /** Clears any cell in the wall footprint still holding this size's own glass block back to
      *  air -- leaves anything else (including a different glass color, or real content the
      *  player built over the suggestion) untouched. */
-    public static void clearWall(Level level, BlockPos doorBasePos, Direction facing, ConnectorPointSize size) {
-        forEachWallFootprintCell(doorBasePos, facing, size, pos -> clearIfStillGlass(level, pos, size.glassBlock()));
+    public static void clearWall(Level level, BlockPos pointPos, Direction facing, ConnectorPointSize size) {
+        forEachWallFootprintCell(pointPos, facing, size, pos -> clearIfStillGlass(level, pos, size.glassBlock()));
     }
 
     /** Floor counterpart of {@link #clearWall}. */
@@ -62,7 +62,7 @@ public final class ConnectorPointFill {
         }
     }
 
-    private static void forEachWallFootprintCell(BlockPos doorBasePos, Direction facing, ConnectorPointSize size, java.util.function.Consumer<BlockPos> action) {
+    private static void forEachWallFootprintCell(BlockPos pointPos, Direction facing, ConnectorPointSize size, java.util.function.Consumer<BlockPos> action) {
         int footprint = size.footprint();
         if (footprint <= 1) {
             return;
@@ -71,10 +71,10 @@ public final class ConnectorPointFill {
         Direction side = facing.getClockWise();
         for (int s = -half; s <= half; s++) {
             for (int y = 0; y < footprint; y++) {
-                if (s == 0 && (y == 0 || y == 1)) {
-                    continue; // the door's own footprint
+                if (s == 0 && y == 0) {
+                    continue; // the connector point's own cell
                 }
-                action.accept(doorBasePos.relative(side, s).above(y));
+                action.accept(pointPos.relative(side, s).above(y));
             }
         }
     }
