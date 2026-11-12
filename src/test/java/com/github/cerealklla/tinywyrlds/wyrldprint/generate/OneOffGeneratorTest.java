@@ -56,13 +56,14 @@ class OneOffGeneratorTest {
     }
 
     /**
-     * Confirms {@code buildMergeTree}/{@code totalEdgeWeight} -- the other pure-math piece of this
-     * class testable without a live registry bootstrap, added 2026-11-12 for the shape-aware
-     * Tunnel layout (explicit user spec: "the entrances in the tunnel should more or less be
-     * similar [to the real-world arrangement], not totally random"). An "L": doors A and B close
-     * together, C far off on its own -- A and B must merge first (the smaller real-world distance),
-     * and that merge must survive as a genuinely separate subtree from C, not get flattened or
-     * reordered by the clustering.
+     * Confirms {@code buildMergeTree} -- the other pure-math piece of this class testable without
+     * a live registry bootstrap, added 2026-11-12 for the shape-aware Tunnel layout. An "L": doors
+     * A and B close together, C far off on its own -- A and B must merge first (the smaller
+     * real-world distance), and that merge must survive as a genuinely separate subtree from C,
+     * not get flattened or reordered by the clustering. {@code totalEdgeWeight} no longer exists --
+     * the shape-aware generator moved from a shared-budget proportional split (which this test used
+     * to also confirm) to per-node target-coordinate steering; see {@code OneOffGenerator
+     * #tryShapedTunnelPlan}'s own doc for why.
      */
     @Test
     void buildMergeTreeMergesTheCloseDoorsFirst() {
@@ -88,10 +89,15 @@ class OneOffGeneratorTest {
         assertTrue(root.mergeDistance() > abSubtree.mergeDistance(),
                 "the root merge (reaching the far door C) must be a larger real-world distance than the close A-B merge");
 
-        double totalWeight = OneOffGenerator.totalEdgeWeight(root);
-        double expected = 2 * root.mergeDistance() + 2 * abSubtree.mergeDistance();
-        assertEquals(expected, totalWeight, 0.0001,
-                "total edge weight is 2x every internal merge's own distance (one weight contribution per child edge), summed over the whole tree");
+        // MergeNode.fork's centroid is the unweighted average of its own two children's centroids
+        // (recursive, not a flat average over every leaf) -- confirms that's what root actually
+        // carries, since tryShapedTunnelPlan's target-coordinate steering is now built entirely on
+        // these centroids. abSubtree's own centroid is (A+B)/2 = (5, 0); root's is
+        // (abSubtree + cLeaf) / 2 = ((5,0) + (0,100)) / 2 = (2.5, 50).
+        assertEquals(5.0, abSubtree.centroidX(), 0.0001, "AB subtree centroid X is the midpoint of A and B");
+        assertEquals(0.0, abSubtree.centroidZ(), 0.0001, "AB subtree centroid Z is the midpoint of A and B");
+        assertEquals(2.5, root.centroidX(), 0.0001, "root centroid X is the midpoint of the AB subtree and C, not a flat 3-way average");
+        assertEquals(50.0, root.centroidZ(), 0.0001, "root centroid Z is the midpoint of the AB subtree and C, not a flat 3-way average");
     }
 
     private static void collectLeafIndices(OneOffGenerator.MergeNode node, Set<Integer> out) {

@@ -103,16 +103,27 @@ public final class OneOffGenerator {
     /** How many independent random attempts {@link #planTunnelPlacements} makes at a shape-aware
      *  Tunnel layout before giving up and falling back to the shape-blind algorithm. */
     private static final int SHAPE_ATTEMPTS = 8;
-    /** Once a shaped chain's own real-world-proportional minimum length is met, how many *extra*
-     *  hops it may still randomly keep growing past that floor -- same "a minimum, not a forced,
-     *  identical length" philosophy as the flat algorithm's own {@code minBranchLength}. */
-    private static final int MAX_EXTRA_VARIANCE_HOPS = 3;
-    private static final double EXTENSION_CHANCE = 0.35;
-    /** Same ratio Settlemynts' own {@code tunnel.TunnelFinalizer#BLOCKS_PER_ROOM} already uses to
-     *  size a Tunnel's overall room budget off its doors' real-world diameter -- reused here per
-     *  edge directly, instead of splitting a shared budget, after a live-tested 6-door Tunnel
-     *  proved that approach non-functional (see {@link #edgeTargetLength}'s own doc). */
-    private static final double BLOCKS_PER_ROOM_FOR_SHAPE = 50.0;
+    /** The farthest entrance's own real-world distance from its door group's centroid is scaled
+     *  down to at most this many local grid cells -- never stretched past 1:1. The exact number is
+     *  deliberately arbitrary: explicit user spec, 2026-11-12, after the previous (real-world-
+     *  proportional) scheme was confirmed broken: "the scale is irrelevant... I just want the exit
+     *  locations to make sense" -- rooms underground may end up considerably larger than their
+     *  above-ground footprint, and that's fine. */
+    private static final double TARGET_SPREAD_CELLS = 24.0;
+    /** A branch's growth toward its own target coordinate (see {@link #tryShapedTunnelPlan}'s own
+     *  doc) stops once within this many cells of it -- pieces are themselves several cells wide, so
+     *  exact coordinate equality is never a realistic goal ("try to place an exit on that door
+     *  proportionally to reality but it can slide as needed to fit the rooms selected" -- explicit
+     *  user spec). */
+    private static final int TARGET_STOP_THRESHOLD = 2;
+    /** Per-edge growth attempt budget before giving up on getting any closer and placing the
+     *  leaf/fork at whatever frontier growth has reached so far -- a soft best-effort stop, not a
+     *  hard failure (only a step that can place no piece at all, at any point, is a hard failure). */
+    private static final int MAX_STEER_ATTEMPTS = 60;
+    /** How much worse (in local cells) a candidate placement's resulting distance-to-target may be
+     *  than the single best one and still be eligible for random selection -- keeps growth from
+     *  reading as a perfectly robotic beeline while still generally advancing toward the target. */
+    private static final double STEER_TOLERANCE = 1.5;
 
     /** @return the created Wyrld instance (plus its real spawn position, if an ENTRANCE was
      *  placed), or {@code null} if no ROOM/ENTRANCE WyrldPrints are saved at all. The real layout
@@ -811,74 +822,71 @@ public final class OneOffGenerator {
         return clusters.get(0);
     }
 
-    /** Both of a fork's own two child edges get the SAME weight (its own {@code mergeDistance}) --
-     *  see {@link #tryShapedTunnelPlan}'s own doc for why both sides of a merge should get a
-     *  proportionally equal say in how long their own branch gets. Summed recursively over the
-     *  whole tree so every edge's share of the total room budget can be computed as a pure ratio,
-     *  independent of the real-world distances' own absolute scale (explicit user spec: "the scale
-     *  does not matter to me, just the general shape and proportions"). */
-    static double totalEdgeWeight(MergeNode node) {
+    /** Every leaf's own distance from {@code (centroidX, centroidZ)} -- the farthest one sets the
+     *  scale in {@link #tryShapedTunnelPlan} ({@link #TARGET_SPREAD_CELLS} divided by this). */
+    private static double maxLeafRadius(MergeNode node, double centroidX, double centroidZ) {
         if (node.isLeaf()) {
-            return 0;
+            double dx = node.centroidX() - centroidX;
+            double dz = node.centroidZ() - centroidZ;
+            return Math.sqrt(dx * dx + dz * dz);
         }
-        return 2 * node.mergeDistance() + totalEdgeWeight(node.left()) + totalEdgeWeight(node.right());
+        return Math.max(maxLeafRadius(node.left(), centroidX, centroidZ), maxLeafRadius(node.right(), centroidX, centroidZ));
     }
 
-    /** The single formula every edge in the shaped tree uses to turn its own real-world merge
-     *  distance into a soft-minimum chain length, factored out so root-level and nested forks can
-     *  never drift out of sync with each other (real review finding -- this used to be duplicated
-     *  verbatim in two places).
-     *
-     * <p><b>Reworked 2026-11-12</b> -- the original formula split the recipe's own shared
-     * {@code roomCount} budget across every edge in proportion to {@code mergeDistance /
-     * totalEdgeWeight}, then halved that share. Confirmed broken via a live 6-door Tunnel
-     * (`min_rooms: 3`): with a tiny shared budget spread across 5 tree edges, EVERY edge's
-     * proportional share rounded to 0 or 1 before the halving step, and halving 1 via integer
-     * division is 0 too -- so every edge's floor was 0 regardless of real-world distance, making
-     * the whole mechanism a no-op and the layout's shape purely random extra-hop noise (exactly
-     * the user's live complaint: "I don't think your implementation to attempt to match
-     * entrances/exits is very accurate at all").
-     *
-     * <p>Fixed by dropping the shared-budget split entirely -- each edge now converts its OWN real
-     * {@code mergeDistance} straight into a room count via the same {@code 1 room per 50 blocks}
-     * ratio Settlemynts' {@code tunnel.TunnelFinalizer} already uses to size a Tunnel's overall
-     * room budget off its doors' diameter ({@link #BLOCKS_PER_ROOM_FOR_SHAPE}), then halves it (same
-     * "a minimum, not a forced length" philosophy as before). No edge ever has to compete with its
-     * siblings for a slice of a too-small shared number, so a short real-world hop can still
-     * legitimately floor at 0 while a long one gets a real, distinct, non-zero floor. */
-    private static int edgeTargetLength(double mergeDistance) {
-        return (int) Math.round(mergeDistance / BLOCKS_PER_ROOM_FOR_SHAPE) / 2;
+    /** {@code node}'s own target local (forward, lateral) -- its real-world centroid's offset from
+     *  the whole group's centroid, scaled down by {@code scale} (see {@link #tryShapedTunnelPlan}'s
+     *  own doc). Works identically for a leaf (a single real door) or an internal node (its own
+     *  subtree's centroid, courtesy of {@link MergeNode#fork}'s own centroid averaging) -- in both
+     *  cases this is simply "where should this node's content sit, relative to local origin, to
+     *  echo where its real-world content sits relative to the door group's own center." Local
+     *  forward/lateral map directly onto real-world +X/+Z with no rotation at all (confirmed against
+     *  {@code tryPlace}'s own doc: "worldForward is real-world +X/EAST, worldLateral is real-world
+     *  +Z/SOUTH") -- a uniform scale on both axes, never a rotation or mirror, so every pairwise
+     *  real-world direction between two doors is preserved exactly (just compressed), matching the
+     *  explicit user spec word for word: "Door A having Door B to the north east of it... rotation
+     *  can change in the tunnel as compass doesn't matter, but they should be related to each other
+     *  correctly." */
+    private static int[] targetLocalCoord(MergeNode node, double groupCentroidX, double groupCentroidZ, double scale) {
+        int f = (int) Math.round((node.centroidX() - groupCentroidX) * scale);
+        int l = (int) Math.round((node.centroidZ() - groupCentroidZ) * scale);
+        return new int[]{f, l};
+    }
+
+    private static double distanceToTarget(Frontier frontier, int targetForward, int targetLateral) {
+        double df = frontier.worldForward() - targetForward;
+        double dl = frontier.worldLateral() - targetLateral;
+        return Math.sqrt(df * df + dl * dl);
     }
 
     /**
-     * One attempt at a Tunnel layout whose underground topology echoes its doors' own real-world
-     * relative arrangement -- explicit user spec, 2026-11-12, after a live-tested 3-entrance Tunnel
-     * came out "fairly jarring": "the entrances above ground and the entrances in the tunnel have
-     * no correlation to each other... if I make a big L for the entrances, the tunnel exits within
-     * the tunnel should more or less be similar, not totally random." Confirmed explicitly that
-     * absolute scale doesn't matter, only shape/proportions -- which is exactly what a normalized
-     * (ratio-based) room-budget split gives for free, independent of whether the real doors are 10
-     * blocks or 10,000 blocks apart.
+     * One attempt at a Tunnel layout whose exits sit relationally correct to each other --
+     * reworked top-to-bottom 2026-11-12, after two earlier designs (real-world-proportional branch
+     * length, then order-preserving traversal) each turned out not to be what the user actually
+     * wanted. The explicit, final spec: "walk order is irrelevant, what matters is the exits should
+     * be relationally correct to each other. Door A having Door B to the north east of it means in
+     * the tunnel Door A should have Door B to the north east too... scale is irrelevant... I just
+     * want the exit locations to make sense" -- and the concrete algorithm: "find the center of the
+     * cluster of door x,y's, then draw a straight line through those points from that center point;
+     * try to place an exit on that door proportionally to reality but it can slide as needed to fit
+     * the rooms selected."
      *
-     * <p>Unlike the shape-blind algorithm above (fully opportunistic: grow randomly anywhere until
-     * enough frontiers exist, then grab entrances wherever convenient), this walks {@code tree}
-     * top-down and places things deliberately: a FORK exactly at every merge node (never
-     * opportunistically mid-chain), an ordinary chain of connectors/2-door rooms of a real-world-
-     * proportional length along every edge, and the real ENTRANCE exactly at every leaf. The tree's
-     * own root -- its last, largest merge -- becomes the very first placement (a fork at the local
-     * origin, no parent frontier, same "seed" role {@code firstEntrance} plays in the algorithm
-     * above), since starting there means every other node is reached by walking strictly downward,
-     * with no need to ever walk back "up" past an ancestor.
+     * <p>Every node of {@code tree} (leaf or internal -- see {@link #targetLocalCoord}) gets a
+     * target local coordinate: its own real-world centroid's offset from the whole group's
+     * centroid, scaled down by a single uniform factor (never a rotation, so every pairwise
+     * real-world direction between doors survives exactly). The scale itself is arbitrary and
+     * never recalibrated to real block distances ({@link #TARGET_SPREAD_CELLS} is just "a
+     * reasonable local footprint," full stop) -- the point is relative position, not real-world
+     * distance fidelity.
      *
-     * <p>Each edge's own target chain length comes straight from its own real-world
-     * {@code mergeDistance} (see {@link #edgeTargetLength}'s own doc for why this is no longer a
-     * shared-budget split across the tree's edges) -- so two close-together doors sharing one
-     * small, nearby merge both get short branches off the SAME fork, while a door that only merges
-     * in at the root gets routed down one long, separate corridor (see this method's own class doc
-     * for the worked "L" example) -- then halved, same "a minimum, not a forced/identical length"
-     * philosophy the flat algorithm's own {@code minBranchLength} already established, so ordinary
-     * random growth still adds natural variance on top rather than every branch coming out a rigid,
-     * identical length.
+     * <p>Growth ({@link #growTowardTarget}) then walks {@code tree} top-down exactly like the two
+     * earlier designs did (a FORK at every merge node, an ordinary connector/2-door-room chain
+     * along every edge, the real ENTRANCE at every leaf) -- what's different is HOW each chain
+     * decides where to go: at every single hop, it looks at every valid piece/rotation available
+     * right now and picks whichever one's resulting frontier lands closest to that edge's own
+     * target coordinate, stopping once close enough (a piece's own footprint is already several
+     * cells wide, so exact coordinate equality was never realistic) or once a generous attempt
+     * budget runs out -- "it can slide as needed to fit the rooms selected" is exactly this: a
+     * soft goal steering every choice, never a hard requirement that can fail generation outright.
      *
      * <p>Deliberately bails out (returns {@code null}) rather than falling back to anything
      * mid-attempt on any placement failure -- a half-finished shaped layout is worse than none at
@@ -895,6 +903,11 @@ public final class OneOffGenerator {
         Placement[] entranceByIndex = new Placement[entranceCount];
         int[] roomsPlaced = {0};
 
+        double groupCentroidX = tree.centroidX();
+        double groupCentroidZ = tree.centroidZ();
+        double maxRadius = maxLeafRadius(tree, groupCentroidX, groupCentroidZ);
+        double scale = maxRadius <= 0 ? 1.0 : Math.min(1.0, TARGET_SPREAD_CELLS / maxRadius);
+
         Placement rootFork = new Placement(forkRooms.get(random.nextInt(forkRooms.size())), Rotation.NONE, 0, 0, 0);
         placements.add(rootFork);
         occupied.putAll(cellStates(rootFork));
@@ -910,20 +923,21 @@ public final class OneOffGenerator {
             leftoverFrontiers.addAll(shuffledRootChildren.subList(2, shuffledRootChildren.size()));
         }
 
-        int rootChildTarget = edgeTargetLength(tree.mergeDistance());
-        boolean leftOk = growShapedEdge(tree.left(), shuffledRootChildren.get(0), rootChildTarget,
+        int[] leftTarget = targetLocalCoord(tree.left(), groupCentroidX, groupCentroidZ, scale);
+        int[] rightTarget = targetLocalCoord(tree.right(), groupCentroidX, groupCentroidZ, scale);
+        boolean leftOk = growTowardTarget(tree.left(), shuffledRootChildren.get(0), leftTarget[0], leftTarget[1], groupCentroidX, groupCentroidZ, scale,
                 connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
         if (!leftOk) {
             return null;
         }
-        boolean rightOk = growShapedEdge(tree.right(), shuffledRootChildren.get(1), rootChildTarget,
+        boolean rightOk = growTowardTarget(tree.right(), shuffledRootChildren.get(1), rightTarget[0], rightTarget[1], groupCentroidX, groupCentroidZ, scale,
                 connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
         if (!rightOk) {
             return null;
         }
         for (Placement p : entranceByIndex) {
             if (p == null) {
-                return null; // a leaf never actually got its real-world entrance placed -- shouldn't happen if growShapedEdge returned true for both sides, but never trust that silently.
+                return null; // a leaf never actually got its real-world entrance placed -- shouldn't happen if growTowardTarget returned true for both sides, but never trust that silently.
             }
         }
 
@@ -950,43 +964,38 @@ public final class OneOffGenerator {
         return new TunnelPlanResult(placements, List.of(entranceByIndex), doorSeals);
     }
 
-    /** Grows exactly one edge of the shaped tree -- an ordinary (non-forking) chain of connectors/
-     *  2-door rooms of roughly {@code targetLength} hops off {@code entryFrontier}, terminating in
-     *  either the real ENTRANCE for {@code node} (a leaf) or a nested FORK continuing into both of
-     *  {@code node}'s own children (internal) -- see {@link #tryShapedTunnelPlan}'s own doc for the
-     *  full design. Deliberately never tries a fork or an endcap room mid-chain (only connectors/
-     *  2-door rooms) -- a fork may only ever appear exactly where the tree says one belongs, or the
-     *  whole point of this method (a layout that actually matches the tree's own shape) is lost.
+    /** Grows exactly one edge of the shaped tree toward {@code (targetForward, targetLateral)} --
+     *  an ordinary (non-forking) chain of connectors/2-door rooms, each hop picked by whichever
+     *  valid placement lands closest to the target (see {@link #pickClosestAdvance}), terminating
+     *  in either the real ENTRANCE for {@code node} (a leaf) or a nested FORK continuing into both
+     *  of {@code node}'s own children (internal) -- see {@link #tryShapedTunnelPlan}'s own doc for
+     *  the full design. Deliberately never tries a fork or an endcap room mid-chain (only
+     *  connectors/2-door rooms) -- a fork may only ever appear exactly where the tree says one
+     *  belongs, or the whole point of this method (a layout that actually matches the tree's own
+     *  shape) is lost.
      *  @return {@code false} on any placement failure -- the caller abandons this whole attempt. */
-    private static boolean growShapedEdge(MergeNode node, Frontier entryFrontier, int targetLength,
+    private static boolean growTowardTarget(MergeNode node, Frontier entryFrontier, int targetForward, int targetLateral,
+            double groupCentroidX, double groupCentroidZ, double scale,
             List<WyrldPrintRecord> connectors, List<WyrldPrintRecord> passThroughRooms, List<WyrldPrintRecord> forkRooms,
             List<Placement> placements, Map<LocalPos, Boolean> occupied, Placement[] entranceByIndex, List<WyrldPrintRecord> entrances,
             List<Frontier> leftoverFrontiers, int[] roomsPlaced, RandomSource random) {
         Frontier frontier = entryFrontier;
-        int chainBudgetRemaining = targetLength;
-        int extraHops = 0;
-        int attemptBudget = Math.max(30, (targetLength + MAX_EXTRA_VARIANCE_HOPS) * 20 + 30);
         int attempts = 0;
-        while (attempts < attemptBudget) {
-            boolean mustContinue = chainBudgetRemaining > 0;
-            boolean mayContinue = !mustContinue && extraHops < MAX_EXTRA_VARIANCE_HOPS && random.nextDouble() < EXTENSION_CHANCE;
-            if (!mustContinue && !mayContinue) {
-                break;
-            }
+        while (attempts < MAX_STEER_ATTEMPTS && distanceToTarget(frontier, targetForward, targetLateral) > TARGET_STOP_THRESHOLD) {
             attempts++;
             // Same invariant the shape-blind algorithm enforces (see this class's own top-level
             // doc): a connector never chains directly onto another connector, only onto a room's
-            // (or an anchor's) own frontier -- real bug caught in review, where this used to try a
-            // connector unconditionally on every hop regardless of what the frontier's own owner
-            // piece was.
+            // (or an anchor's) own frontier.
             boolean frontierOwnedByConnector = frontier.ownerType() == WyrldPrintType.CONNECTOR;
-            Placement placed = frontierOwnedByConnector ? null : tryPlace(frontier, shuffled(connectors, random), occupied, random);
-            if (placed == null) {
-                placed = tryPlace(frontier, shuffled(passThroughRooms, random), occupied, random);
+            List<Placement> candidates = new ArrayList<>();
+            if (!frontierOwnedByConnector) {
+                candidates.addAll(candidatePlacementsAt(frontier, connectors, occupied));
             }
-            if (placed == null) {
+            candidates.addAll(candidatePlacementsAt(frontier, passThroughRooms, occupied));
+            if (candidates.isEmpty()) {
                 return false;
             }
+            Placement placed = pickClosestAdvance(candidates, frontier.branchDepth(), targetForward, targetLateral, random);
             placements.add(placed);
             occupied.putAll(cellStates(placed));
             logPlacement(placed);
@@ -1001,11 +1010,6 @@ public final class OneOffGenerator {
             frontier = next.get(0);
             if (next.size() > 1) {
                 leftoverFrontiers.addAll(next.subList(1, next.size()));
-            }
-            if (mustContinue) {
-                chainBudgetRemaining--;
-            } else {
-                extraHops++;
             }
         }
 
@@ -1038,14 +1042,99 @@ public final class OneOffGenerator {
         if (shuffledChildren.size() > 2) {
             leftoverFrontiers.addAll(shuffledChildren.subList(2, shuffledChildren.size()));
         }
-        int childTarget = edgeTargetLength(node.mergeDistance());
-        boolean leftOk = growShapedEdge(node.left(), shuffledChildren.get(0), childTarget,
+        int[] leftTarget = targetLocalCoord(node.left(), groupCentroidX, groupCentroidZ, scale);
+        int[] rightTarget = targetLocalCoord(node.right(), groupCentroidX, groupCentroidZ, scale);
+        boolean leftOk = growTowardTarget(node.left(), shuffledChildren.get(0), leftTarget[0], leftTarget[1], groupCentroidX, groupCentroidZ, scale,
                 connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
         if (!leftOk) {
             return false;
         }
-        return growShapedEdge(node.right(), shuffledChildren.get(1), childTarget,
+        return growTowardTarget(node.right(), shuffledChildren.get(1), rightTarget[0], rightTarget[1], groupCentroidX, groupCentroidZ, scale,
                 connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
+    }
+
+    /** Every valid (non-colliding, correctly-facing) placement of any of {@code candidates} onto
+     *  {@code frontier}, across every point and every {@link Rotation} -- the same matching logic
+     *  {@link #tryPlace} uses, just collecting every success instead of returning the first, so
+     *  {@link #growTowardTarget} can pick whichever one actually advances toward its target rather
+     *  than an arbitrary one. A deliberate "copy and tweak" of {@code tryPlace}'s own geometry
+     *  (same precedent Settlemynts' {@code RoadwayPaver}/{@code HighwayPaver} already set) rather
+     *  than restructuring that proven, already-live method to share code with this one. */
+    private static List<Placement> candidatePlacementsAt(Frontier frontier, List<WyrldPrintRecord> candidates, Map<LocalPos, Boolean> occupied) {
+        List<Placement> results = new ArrayList<>();
+        for (WyrldPrintRecord candidate : candidates) {
+            for (WyrldPrintPoint point : candidate.points()) {
+                if (point.wall() != frontier.wall() || point.size() != frontier.size()) {
+                    continue;
+                }
+                for (Rotation rotation : ALL_ROTATIONS) {
+                    if (frontier.wall()) {
+                        if (point.facing().isEmpty() || frontier.facing().isEmpty()) {
+                            continue;
+                        }
+                        if (rotation.rotate(point.facing().get()) != frontier.facing().get().getOpposite()) {
+                            continue;
+                        }
+                    }
+                    int targetForward = frontier.worldForward();
+                    int targetLateral = frontier.worldLateral();
+                    if (frontier.wall()) {
+                        Direction outward = frontier.facing().get();
+                        targetForward += outward.getStepX();
+                        targetLateral += outward.getStepZ();
+                    }
+                    int[] rotatedFL = rotateForwardLateral(point.relForward(), point.relLateral(), rotation);
+                    int originForward = targetForward - rotatedFL[0];
+                    int originLateral = targetLateral - rotatedFL[1];
+                    int originY = frontier.worldY() - point.relY();
+                    Placement candidatePlacement = new Placement(candidate, rotation, originForward, originLateral, originY, point);
+                    if (findCollisions(candidatePlacement, occupied).isEmpty()) {
+                        results.add(candidatePlacement);
+                    }
+                }
+            }
+        }
+        return results;
+    }
+
+    /** Among every valid {@code candidates} placement, picks whichever one's resulting new
+     *  frontier lands closest to {@code (targetForward, targetLateral)} -- ties (anything within
+     *  {@link #STEER_TOLERANCE} cells of the single best) are broken randomly, so growth still
+     *  reads as natural rather than a perfectly robotic beeline while generally advancing toward
+     *  the target. Two passes over {@code candidates}, deliberately -- a single online pass that
+     *  clears its own tolerance set every time a strictly better distance appears (real review
+     *  finding) permanently drops earlier candidates that would still qualify under the FINAL best,
+     *  since {@code candidatePlacementsAt} enumerates in fixed catalog/point/rotation order, never
+     *  shuffled -- that's a deterministic, repeated bias on every single growth step, not a rare
+     *  ordering fluke. */
+    private static Placement pickClosestAdvance(List<Placement> candidates, int parentBranchDepth, int targetForward, int targetLateral, RandomSource random) {
+        double bestDistance = Double.MAX_VALUE;
+        for (Placement candidate : candidates) {
+            double distance = resultingDistance(candidate, parentBranchDepth, targetForward, targetLateral);
+            if (distance >= 0 && distance < bestDistance) {
+                bestDistance = distance;
+            }
+        }
+        List<Placement> best = new ArrayList<>();
+        for (Placement candidate : candidates) {
+            double distance = resultingDistance(candidate, parentBranchDepth, targetForward, targetLateral);
+            if (distance >= 0 && distance <= bestDistance + STEER_TOLERANCE) {
+                best.add(candidate);
+            }
+        }
+        return best.isEmpty() ? candidates.get(0) : best.get(random.nextInt(best.size()));
+    }
+
+    /** @return the resulting new frontier's distance to the target, or {@code -1} if {@code
+     *  candidate} is a dead end (should never happen among connector/passthrough-room candidates,
+     *  but never trust that silently). */
+    private static double resultingDistance(Placement candidate, int parentBranchDepth, int targetForward, int targetLateral) {
+        List<Frontier> next = new ArrayList<>();
+        addFrontiers(next, candidate, parentBranchDepth);
+        if (next.isEmpty()) {
+            return -1;
+        }
+        return distanceToTarget(next.get(0), targetForward, targetLateral);
     }
 
     /** Identical sealing logic to {@link #planPlacements}'s own door-sealing pass (see its doc for
