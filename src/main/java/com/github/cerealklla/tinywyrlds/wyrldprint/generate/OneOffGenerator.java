@@ -585,6 +585,17 @@ public final class OneOffGenerator {
         List<Placement> entranceAnchors = new ArrayList<>();
         entranceAnchors.add(firstEntrance);
 
+        // Explicit user spec, 2026-11-12, after the clustered-entrances concern raised once
+        // frontier starvation was fixed above: "fork length based on number of rooms / number of
+        // doors... but take 1/2 that value... that way one fork can be a little longer than
+        // another and it won't seem stilted." A hard minimum would make every branch an identical,
+        // rigid length (its own kind of unnatural); a *minimum* set to half the even-split average
+        // still guarantees no branch is absurdly short while leaving real room for natural
+        // variance above that floor from ordinary random growth. Integer division cleanly allows
+        // 0 (e.g. a short Tunnel with few rooms relative to its entrance count), which was an
+        // explicit requirement, not an oversight.
+        int minBranchLength = (roomCount / entranceCount) / 2;
+
         int roomsPlaced = 0;
         int attempts = 0;
         int attemptBudget = Math.max(50, (roomCount + entranceCount) * 60);
@@ -611,7 +622,9 @@ public final class OneOffGenerator {
             // unaffected.
             int entranceAnchorsStillNeededAfterThis = entranceCount - entranceAnchors.size() - 1;
             boolean enoughFrontierSlackToSpendOnEntranceNow = openFrontiers.size() >= entranceAnchorsStillNeededAfterThis;
-            if (entranceAnchors.size() < entranceCount && roomsPlaced >= roomCount && enoughFrontierSlackToSpendOnEntranceNow) {
+            boolean branchLongEnoughForEntranceNow = frontier.branchDepth() >= minBranchLength;
+            if (entranceAnchors.size() < entranceCount && roomsPlaced >= roomCount
+                    && enoughFrontierSlackToSpendOnEntranceNow && branchLongEnoughForEntranceNow) {
                 placed = tryPlace(frontier, shuffled(entrances, random), occupied, random);
                 if (placed != null) {
                     entranceAnchors.add(placed);
@@ -635,7 +648,7 @@ public final class OneOffGenerator {
             }
             placements.add(placed);
             occupied.putAll(cellStates(placed));
-            addFrontiers(openFrontiers, placed);
+            addFrontiers(openFrontiers, placed, frontier.branchDepth());
             if (placed.record().type() == WyrldPrintType.ROOM) {
                 roomsPlaced++;
             }
@@ -1077,6 +1090,16 @@ public final class OneOffGenerator {
      *  confirmed-live bug (a generate call repeatedly re-placing the identical piece at the
      *  identical spot, inflating the reported room count with duplicates of itself). */
     private static void addFrontiers(List<Frontier> frontiers, Placement placement) {
+        addFrontiers(frontiers, placement, 0);
+    }
+
+    /** @param parentBranchDepth the {@link Frontier#branchDepth()} of the frontier {@code placement}
+     *  was just attached to (0 for a root placement with no parent, e.g. the first piece of a plan).
+     *  Every ordinary (non-Tunnel) caller just uses the 2-arg overload above -- branch depth is only
+     *  ever consulted by Tunnel generation, so passing a real value elsewhere would be inert anyway. */
+    private static void addFrontiers(List<Frontier> frontiers, Placement placement, int parentBranchDepth) {
+        boolean isFork = placement.record().points().size() > 2;
+        int childBranchDepth = isFork ? 0 : parentBranchDepth + 1;
         for (WyrldPrintPoint point : placement.record().points()) {
             if (point == placement.consumedPoint()) {
                 continue; // this is the point that was just used to attach -- not a new frontier.
@@ -1086,7 +1109,7 @@ public final class OneOffGenerator {
             int worldLateral = placement.originLateral() + rotatedFL[1];
             int worldY = placement.originY() + point.relY();
             Optional<Direction> worldFacing = point.facing().map(f -> placement.rotation().rotate(f));
-            frontiers.add(new Frontier(worldForward, worldLateral, worldY, point.wall(), worldFacing, placement.record().type(), point.size(), placement));
+            frontiers.add(new Frontier(worldForward, worldLateral, worldY, point.wall(), worldFacing, placement.record().type(), point.size(), placement, childBranchDepth));
         }
     }
 
@@ -1269,8 +1292,13 @@ public final class OneOffGenerator {
      *  "enforce connector size matches" -- a small door can no longer join a large one). {@code
      *  ownerPlacement} is the real placement this point belongs to -- used by the door-sealing pass
      *  to find the connector's own wall material when the point never gets consumed. */
+    /** {@code branchDepth} is how many non-forking (<=2-door) pieces separate this frontier from
+     *  the nearest fork (a 3+-door piece) or the tunnel's own root -- reset to 0 the moment a fork
+     *  is placed, incremented by 1 for every ordinary pass-through piece otherwise. Only meaningful
+     *  for (and only ever consulted by) {@code planTunnelPlacements}'s own minimum-branch-length
+     *  check -- irrelevant, always 0, for ordinary (non-Tunnel) generation. */
     private record Frontier(int worldForward, int worldLateral, int worldY, boolean wall, Optional<Direction> facing,
-                             WyrldPrintType ownerType, ConnectorPointSize size, Placement ownerPlacement) {
+                             WyrldPrintType ownerType, ConnectorPointSize size, Placement ownerPlacement, int branchDepth) {
     }
 
     /** A single cell position in the shared local (forward, lateral, Y) planning space every
