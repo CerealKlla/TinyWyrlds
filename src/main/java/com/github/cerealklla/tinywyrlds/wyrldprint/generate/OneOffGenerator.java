@@ -593,7 +593,25 @@ public final class OneOffGenerator {
             Frontier frontier = openFrontiers.remove(random.nextInt(openFrontiers.size()));
 
             Placement placed = null;
-            if (entranceAnchors.size() < entranceCount && roomsPlaced >= roomCount) {
+            // Real live bug, 2026-11-12: a group of 3+ real-world doors could finalize fine (the
+            // doors themselves place without issue) but then fail every single generation attempt
+            // forever, confirmed via Production's own log -- only 2 of the required 3 ENTRANCE
+            // anchors ever got placed before openFrontiers ran dry, so generation returned null
+            // every time a player touched any of the 3 doors. Root cause: every ENTRANCE is a dead
+            // end (it consumes exactly one frontier and opens zero new ones), so opportunistically
+            // cashing one in the instant room growth finishes greedily spent the open-frontier pool
+            // down toward zero with no reservation for however many entrances were still needed --
+            // fine for the original, already-live-tested 2-entrance case (there's never a "third"
+            // slot to starve), but not for 3+. Now only spends a frontier on an entrance here if
+            // enough frontiers would still remain afterward to cover however many entrances are
+            // still needed past this one -- otherwise this frontier goes to a connector/room
+            // instead (which usually opens MORE frontiers), building the pool back up before trying
+            // again next iteration. Identical behavior to before whenever entranceCount <= 2 (the
+            // slack check is always satisfied then), so the already-confirmed-live 2-door case is
+            // unaffected.
+            int entranceAnchorsStillNeededAfterThis = entranceCount - entranceAnchors.size() - 1;
+            boolean enoughFrontierSlackToSpendOnEntranceNow = openFrontiers.size() >= entranceAnchorsStillNeededAfterThis;
+            if (entranceAnchors.size() < entranceCount && roomsPlaced >= roomCount && enoughFrontierSlackToSpendOnEntranceNow) {
                 placed = tryPlace(frontier, shuffled(entrances, random), occupied, random);
                 if (placed != null) {
                     entranceAnchors.add(placed);
