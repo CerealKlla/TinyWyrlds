@@ -1,0 +1,21 @@
+{
+  "render_type": "minecraft:cutout",
+  "textures": {
+    "particle": "tinywyrlds:block/connector_arrow_small",
+    "texture": "tinywyrlds:block/connector_arrow_small"
+  },
+  "elements": [
+    {
+      "from": [0, 14, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "down":  { "texture": "#texture" },
+        "up":    { "texture": "#texture" },
+        "north": { "texture": "#texture" },
+        "south": { "texture": "#texture" },
+        "west":  { "texture": "#texture" },
+        "east":  { "texture": "#texture" }
+      }
+    }
+  ]
+}
