@@ -47,19 +47,30 @@ public class TunnelDoorBlockEntity extends BlockEntity {
     private GlobalPos partnerPos;
     private String recipeName = "";
     private WyrldLifecycle lifecycle = WyrldLifecycle.INSTANCED;
+    /** A copy of {@link #recipeName}'s own recipe, captured whenever it's successfully loaded --
+     *  this door's own fallback source of truth for its generation parameters, not just a name
+     *  pointer into {@code WyrldRecipeStorage}. Explicit user spec: an entrance should carry its
+     *  own generation parameters so a deleted/renamed recipe can be rebuilt from the entrance
+     *  itself rather than silently failing. Kept in sync on every successful {@link #enter} (see
+     *  its own doc), so an admin's later edit (e.g. adding a tag) is still picked up normally --
+     *  this backup copy only ever gets used when the live recipe is actually missing. */
+    private WyrldRecipe recipeBackup;
 
     public TunnelDoorBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.TUNNEL_DOOR.get(), pos, state);
     }
 
     /** Called once, right after placement, by {@code api.TinyWyrlds#createTunnelDoorPair} -- never
-     *  re-configured afterward. */
+     *  re-configured afterward. The recipe is loaded once here too, as this door's first {@link
+     *  #recipeBackup} -- {@code ensureTunnelRecipeExists} has always already run by this point,
+     *  so it's real. */
     public void configure(UUID pairId, boolean roleA, GlobalPos partnerPos, String recipeName, WyrldLifecycle lifecycle) {
         this.pairId = pairId;
         this.roleA = roleA;
         this.partnerPos = partnerPos;
         this.recipeName = recipeName;
         this.lifecycle = lifecycle;
+        this.recipeBackup = WyrldRecipeStorage.get().load(recipeName).orElse(null);
         setChanged();
     }
 
@@ -88,9 +99,18 @@ public class TunnelDoorBlockEntity extends BlockEntity {
         }
 
         WyrldRecipe recipe = WyrldRecipeStorage.get().load(recipeName).orElse(null);
+        if (recipe == null && recipeBackup != null) {
+            recipe = recipeBackup;
+            WyrldRecipeStorage.get().save(recipe);
+            TinyWyrldsMod.LOGGER.info("TunnelDoorBlockEntity: recipe '{}' was missing for Tunnel pair {} -- restored from this door's own stored backup copy.", recipeName, pairId);
+        }
         if (recipe == null) {
-            TinyWyrldsMod.LOGGER.warn("TunnelDoorBlockEntity: recipe '{}' no longer exists for Tunnel pair {}.", recipeName, pairId);
+            TinyWyrldsMod.LOGGER.warn("TunnelDoorBlockEntity: recipe '{}' no longer exists for Tunnel pair {}, and no backup copy is stored to restore it from.", recipeName, pairId);
             return;
+        }
+        if (!recipe.equals(recipeBackup)) {
+            recipeBackup = recipe;
+            setChanged();
         }
         GlobalPos myPos = GlobalPos.of(level.dimension(), worldPosition);
         GlobalPos destA = roleA ? myPos : partnerPos;
@@ -112,6 +132,7 @@ public class TunnelDoorBlockEntity extends BlockEntity {
         partnerPos = input.read("PartnerPos", GlobalPos.CODEC).orElse(null);
         recipeName = input.getStringOr("RecipeName", "");
         lifecycle = input.read("Lifecycle", WyrldLifecycle.CODEC).orElse(WyrldLifecycle.INSTANCED);
+        recipeBackup = input.read("RecipeBackup", WyrldRecipe.CODEC).orElse(null);
     }
 
     @Override
@@ -122,5 +143,6 @@ public class TunnelDoorBlockEntity extends BlockEntity {
         output.storeNullable("PartnerPos", GlobalPos.CODEC, partnerPos);
         output.putString("RecipeName", recipeName);
         output.store("Lifecycle", WyrldLifecycle.CODEC, lifecycle);
+        output.storeNullable("RecipeBackup", WyrldRecipe.CODEC, recipeBackup);
     }
 }

@@ -65,6 +65,15 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
     private String recipeName = "";
     private UUID ownerPlayerId;
     private UUID generatedWyrldId;
+    /** A copy of {@code recipeName}'s own recipe, captured whenever it's successfully loaded --
+     *  this entrance's own fallback source of truth for its generation parameters, not just a name
+     *  pointer into {@code WyrldRecipeStorage}. Same rationale and lifecycle as {@code
+     *  TunnelDoorBlockEntity}'s own {@code recipeBackup}: rebuilds a deleted/renamed recipe from
+     *  the entrance itself instead of silently failing, and stays in sync with the live recipe on
+     *  every successful {@link #enter}. {@link #enterDirect} has no entity to hold this on at all
+     *  (an already-documented accepted gap, see its own doc) -- only this entity-backed path
+     *  benefits. */
+    private WyrldRecipe recipeBackup;
 
     /** Not persisted -- see {@link EntranceEnterResult}'s own doc for why this is purely an
      *  in-memory hand-off, now also mirrored into {@link EntranceEnterResults} (a global,
@@ -95,6 +104,7 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
         entity.entranceId = entranceId;
         entity.recipeName = recipeName;
         entity.ownerPlayerId = ownerPlayerId;
+        entity.recipeBackup = WyrldRecipeStorage.get().load(recipeName).orElse(null);
         BlockDisplayHelper.setBlockState(entity, ModBlocks.EXIT_PORTAL.get().defaultBlockState().setValue(ExitPortalBlock.AXIS, Direction.Axis.Z));
         level.addFreshEntity(entity);
         return entity;
@@ -122,12 +132,13 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
             return WyrldManager.enter(player, generatedWyrldId);
         }
 
-        Optional<OneOffGenerator.GenerateResult> generated = generateFromRecipe(player.level().getServer(), entranceId, recipeName);
+        Optional<OneOffGenerator.GenerateResult> generated = generateFromRecipe(player.level().getServer(), entranceId, recipeName, recipeBackup);
         if (generated.isEmpty()) {
             return false;
         }
         OneOffGenerator.GenerateResult result = generated.get();
         generatedWyrldId = result.instance().id();
+        recipeBackup = WyrldRecipeStorage.get().load(recipeName).orElse(recipeBackup);
         recordEnterResult(new EntranceEnterResult(generatedWyrldId, result.spawnedEnemyIds(), true));
         if (!result.spawnPoints().isEmpty()) {
             return WyrldManager.enterAt(player, generatedWyrldId, result.spawnPoints().get(0));
@@ -158,7 +169,7 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
             return WyrldManager.enter(player, cached.get().wyrldId());
         }
 
-        Optional<OneOffGenerator.GenerateResult> generated = generateFromRecipe(server, entranceId, recipeName);
+        Optional<OneOffGenerator.GenerateResult> generated = generateFromRecipe(server, entranceId, recipeName, null);
         if (generated.isEmpty()) {
             return false;
         }
@@ -173,10 +184,17 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
 
     /** Shared by {@link #enter} and {@link #enterDirect} -- loads {@code recipeName} and runs
      *  generation, logging (server-side only, see {@link #logGenerationFailure}'s own doc) and
-     *  returning empty on any failure. */
+     *  returning empty on any failure. {@code recipeBackup} is this entrance's own last-known
+     *  recipe copy (null for {@link #enterDirect}, which has no entity to hold one) -- used, and
+     *  restored back into {@code WyrldRecipeStorage}, only if the live recipe is genuinely gone. */
     private static Optional<OneOffGenerator.GenerateResult> generateFromRecipe(net.minecraft.server.MinecraftServer server,
-            UUID entranceId, String recipeName) {
+            UUID entranceId, String recipeName, WyrldRecipe recipeBackup) {
         WyrldRecipe recipe = WyrldRecipeStorage.get().load(recipeName).orElse(null);
+        if (recipe == null && recipeBackup != null) {
+            recipe = recipeBackup;
+            WyrldRecipeStorage.get().save(recipe);
+            com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info("WyrldEntranceEntity: recipe '{}' was missing for entrance {} -- restored from this entrance's own stored backup copy.", recipeName, entranceId);
+        }
         if (recipe == null) {
             logGenerationFailure("Entrance " + entranceId + ": recipe '" + recipeName + "' no longer exists.");
             return Optional.empty();
@@ -220,6 +238,7 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
         output.putString("RecipeName", recipeName);
         output.storeNullable("OwnerPlayerId", UUIDUtil.CODEC, ownerPlayerId);
         output.storeNullable("GeneratedWyrldId", UUIDUtil.CODEC, generatedWyrldId);
+        output.storeNullable("RecipeBackup", WyrldRecipe.CODEC, recipeBackup);
     }
 
     @Override
@@ -229,5 +248,6 @@ public class WyrldEntranceEntity extends Display.BlockDisplay {
         recipeName = input.getStringOr("RecipeName", "");
         ownerPlayerId = input.read("OwnerPlayerId", UUIDUtil.CODEC).orElse(null);
         generatedWyrldId = input.read("GeneratedWyrldId", UUIDUtil.CODEC).orElse(null);
+        recipeBackup = input.read("RecipeBackup", WyrldRecipe.CODEC).orElse(null);
     }
 }
