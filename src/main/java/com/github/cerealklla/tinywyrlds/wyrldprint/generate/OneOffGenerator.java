@@ -32,6 +32,7 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldRecipe;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.GlobalPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -98,6 +99,15 @@ public final class OneOffGenerator {
     private static final int MARGIN = 5;
     private static final double PREFER_CONNECTOR_CHANCE = 0.65;
     private static final Rotation[] ALL_ROTATIONS = {Rotation.NONE, Rotation.CLOCKWISE_90, Rotation.CLOCKWISE_180, Rotation.COUNTERCLOCKWISE_90};
+
+    /** How many independent random attempts {@link #planTunnelPlacements} makes at a shape-aware
+     *  Tunnel layout before giving up and falling back to the shape-blind algorithm. */
+    private static final int SHAPE_ATTEMPTS = 8;
+    /** Once a shaped chain's own real-world-proportional minimum length is met, how many *extra*
+     *  hops it may still randomly keep growing past that floor -- same "a minimum, not a forced,
+     *  identical length" philosophy as the flat algorithm's own {@code minBranchLength}. */
+    private static final int MAX_EXTRA_VARIANCE_HOPS = 3;
+    private static final double EXTENSION_CHANCE = 0.35;
 
     /** @return the created Wyrld instance (plus its real spawn position, if an ENTRANCE was
      *  placed), or {@code null} if no ROOM/ENTRANCE WyrldPrints are saved at all. The real layout
@@ -558,6 +568,16 @@ public final class OneOffGenerator {
      *     ENTRANCE genuinely never finds anywhere left to attach.
      */
     private static TunnelPlanResult planTunnelPlacements(int roomCount, List<String> requiredTags, int entranceCount) {
+        return planTunnelPlacements(roomCount, requiredTags, entranceCount, null);
+    }
+
+    /** @param dests real-world door positions, one per required entrance, in the exact order
+     *  {@code stampTunnel} will later zip against -- used (for {@code entranceCount >= 3}) to shape
+     *  generation so its underground layout's RELATIVE topology echoes the doors' own real-world
+     *  arrangement, rather than being placed with no regard for it at all. {@code null} (or a size
+     *  mismatch) falls straight through to the original shape-blind algorithm below, same as before
+     *  this parameter existed. */
+    private static TunnelPlanResult planTunnelPlacements(int roomCount, List<String> requiredTags, int entranceCount, List<GlobalPos> dests) {
         List<WyrldPrintRecord> rooms = WyrldPrintStorage.get().listAll().stream()
                 .filter(r -> r.type() == WyrldPrintType.ROOM).filter(r -> matchesTags(r, requiredTags)).toList();
         List<WyrldPrintRecord> connectors = WyrldPrintStorage.get().listAll().stream()
@@ -569,6 +589,32 @@ public final class OneOffGenerator {
         }
         List<WyrldPrintRecord> endcapRooms = rooms.stream().filter(r -> r.points().size() == 1).toList();
         List<WyrldPrintRecord> multiDoorRooms = rooms.stream().filter(r -> r.points().size() > 1).toList();
+
+        // Explicit user spec, 2026-11-12, after a live-tested 3-entrance Tunnel's underground layout
+        // bore no resemblance to its doors' real-world arrangement ("if I make a big L for the
+        // entrances, the tunnel exits within the tunnel should more or less be similar, not totally
+        // random"): for 3+ real-world doors with known positions, try a shape-aware plan first (see
+        // tryShapedTunnelPlan's own doc) -- several attempts, since a deliberately tree-shaped layout
+        // is more collision-prone than the fully-opportunistic algorithm below. Falls through to the
+        // original, already-proven algorithm if every attempt fails, or if there's no real-world
+        // position data to shape from (e.g. a future non-door-based caller) -- shape is a cosmetic
+        // improvement, never allowed to make a Tunnel that would otherwise succeed instead fail.
+        if (entranceCount >= 3 && dests != null && dests.size() == entranceCount && !multiDoorRooms.isEmpty()) {
+            List<WyrldPrintRecord> passThroughRooms = rooms.stream().filter(r -> r.points().size() == 2).toList();
+            List<WyrldPrintRecord> forkRooms = rooms.stream().filter(r -> r.points().size() > 2).toList();
+            if (!forkRooms.isEmpty()) {
+                MergeNode tree = buildMergeTree(dests);
+                double totalEdgeWeight = totalEdgeWeight(tree);
+                for (int attempt = 0; attempt < SHAPE_ATTEMPTS; attempt++) {
+                    TunnelPlanResult shaped = tryShapedTunnelPlan(tree, totalEdgeWeight, roomCount, entranceCount,
+                            connectors, passThroughRooms, forkRooms, endcapRooms, entrances, RandomSource.create());
+                    if (shaped != null) {
+                        return shaped;
+                    }
+                }
+                com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info("OneOffGenerator: every shape-aware Tunnel attempt failed after {} tries -- falling back to the shape-blind algorithm.", SHAPE_ATTEMPTS);
+            }
+        }
 
         RandomSource random = RandomSource.create();
         List<Placement> placements = new ArrayList<>();
@@ -702,6 +748,284 @@ public final class OneOffGenerator {
         return new TunnelPlanResult(placements, entranceAnchors, doorSeals);
     }
 
+    /** A node in the nearest-neighbor merge tree built from a Tunnel group's real-world door
+     *  positions (horizontal X/Z only -- real-world Y differences between settlement doors aren't
+     *  meaningful to the underground layout's shape, same reasoning {@code TunnelFinalizer}'s own
+     *  centroid-facing math already uses). A leaf is a single real-world door, identified by its
+     *  own index into the {@code dests} list {@code stampTunnel} will later zip against -- see
+     *  {@link #tryShapedTunnelPlan}'s own doc for why that index has to survive all the way through.
+     *  An internal node is the merge of its two children at {@code mergeDistance} (the real-world
+     *  distance between them at the moment they were merged) -- the tree's own root is simply
+     *  whichever merge happened last (always the largest {@code mergeDistance} in the tree, since
+     *  nearest-neighbor clustering merges in non-decreasing distance order). */
+    record MergeNode(Integer leafEntranceIndex, MergeNode left, MergeNode right, double mergeDistance,
+                              double centroidX, double centroidZ) {
+        boolean isLeaf() {
+            return leafEntranceIndex != null;
+        }
+
+        static MergeNode leaf(int entranceIndex, double x, double z) {
+            return new MergeNode(entranceIndex, null, null, 0, x, z);
+        }
+
+        static MergeNode fork(MergeNode left, MergeNode right, double mergeDistance) {
+            return new MergeNode(null, left, right, mergeDistance,
+                    (left.centroidX() + right.centroidX()) / 2.0, (left.centroidZ() + right.centroidZ()) / 2.0);
+        }
+    }
+
+    /** Plain nearest-neighbor (single-linkage-by-centroid) agglomerative clustering: repeatedly
+     *  merges whichever two clusters are currently closest, until one tree remains. {@code O(n^2)}
+     *  per merge is more than fine at Tunnel-door counts (a handful, not hundreds). */
+    static MergeNode buildMergeTree(List<GlobalPos> dests) {
+        List<MergeNode> clusters = new ArrayList<>();
+        for (int i = 0; i < dests.size(); i++) {
+            BlockPos pos = dests.get(i).pos();
+            clusters.add(MergeNode.leaf(i, pos.getX(), pos.getZ()));
+        }
+        while (clusters.size() > 1) {
+            int bestI = 0;
+            int bestJ = 1;
+            double bestDist = Double.MAX_VALUE;
+            for (int i = 0; i < clusters.size(); i++) {
+                for (int j = i + 1; j < clusters.size(); j++) {
+                    double dx = clusters.get(i).centroidX() - clusters.get(j).centroidX();
+                    double dz = clusters.get(i).centroidZ() - clusters.get(j).centroidZ();
+                    double dist = Math.sqrt(dx * dx + dz * dz);
+                    if (dist < bestDist) {
+                        bestDist = dist;
+                        bestI = i;
+                        bestJ = j;
+                    }
+                }
+            }
+            MergeNode merged = MergeNode.fork(clusters.get(bestI), clusters.get(bestJ), bestDist);
+            clusters.remove(bestJ); // remove the higher index first so the lower one stays valid
+            clusters.remove(bestI);
+            clusters.add(merged);
+        }
+        return clusters.get(0);
+    }
+
+    /** Both of a fork's own two child edges get the SAME weight (its own {@code mergeDistance}) --
+     *  see {@link #tryShapedTunnelPlan}'s own doc for why both sides of a merge should get a
+     *  proportionally equal say in how long their own branch gets. Summed recursively over the
+     *  whole tree so every edge's share of the total room budget can be computed as a pure ratio,
+     *  independent of the real-world distances' own absolute scale (explicit user spec: "the scale
+     *  does not matter to me, just the general shape and proportions"). */
+    static double totalEdgeWeight(MergeNode node) {
+        if (node.isLeaf()) {
+            return 0;
+        }
+        return 2 * node.mergeDistance() + totalEdgeWeight(node.left()) + totalEdgeWeight(node.right());
+    }
+
+    /** The single formula every edge in the shaped tree uses to turn its own share of the real-
+     *  world proportions into a soft-minimum chain length, factored out so root-level and nested
+     *  forks can never drift out of sync with each other (real review finding -- this used to be
+     *  duplicated verbatim in two places). Guards against {@code totalEdgeWeight <= 0} (every real-
+     *  world door position coinciding, so every merge distance is 0) -- falls back to splitting
+     *  {@code roomCount} evenly rather than producing a silent {@code NaN}. */
+    private static int edgeTargetLength(int roomCount, double mergeDistance, double totalEdgeWeight) {
+        if (totalEdgeWeight <= 0) {
+            return roomCount / 2;
+        }
+        return (int) Math.round(roomCount * mergeDistance / totalEdgeWeight) / 2;
+    }
+
+    /**
+     * One attempt at a Tunnel layout whose underground topology echoes its doors' own real-world
+     * relative arrangement -- explicit user spec, 2026-11-12, after a live-tested 3-entrance Tunnel
+     * came out "fairly jarring": "the entrances above ground and the entrances in the tunnel have
+     * no correlation to each other... if I make a big L for the entrances, the tunnel exits within
+     * the tunnel should more or less be similar, not totally random." Confirmed explicitly that
+     * absolute scale doesn't matter, only shape/proportions -- which is exactly what a normalized
+     * (ratio-based) room-budget split gives for free, independent of whether the real doors are 10
+     * blocks or 10,000 blocks apart.
+     *
+     * <p>Unlike the shape-blind algorithm above (fully opportunistic: grow randomly anywhere until
+     * enough frontiers exist, then grab entrances wherever convenient), this walks {@code tree}
+     * top-down and places things deliberately: a FORK exactly at every merge node (never
+     * opportunistically mid-chain), an ordinary chain of connectors/2-door rooms of a real-world-
+     * proportional length along every edge, and the real ENTRANCE exactly at every leaf. The tree's
+     * own root -- its last, largest merge -- becomes the very first placement (a fork at the local
+     * origin, no parent frontier, same "seed" role {@code firstEntrance} plays in the algorithm
+     * above), since starting there means every other node is reached by walking strictly downward,
+     * with no need to ever walk back "up" past an ancestor.
+     *
+     * <p>Each edge's own target chain length is {@code roomCount * mergeDistance / totalEdgeWeight}
+     * -- the fork's own merge distance split evenly in proportion across both of its children's
+     * edges (so two close-together doors sharing one small, nearby merge both get short branches
+     * off the SAME fork, while a door that only merges in at the root gets routed down one long,
+     * separate corridor; see this method's own class doc for the worked "L" example) -- then halved
+     * again, same "a minimum, not a forced/identical length" philosophy the flat algorithm's own
+     * {@code minBranchLength} already established, so ordinary random growth still adds natural
+     * variance on top rather than every branch coming out a rigid, identical length.
+     *
+     * <p>Deliberately bails out (returns {@code null}) rather than falling back to anything
+     * mid-attempt on any placement failure -- a half-finished shaped layout is worse than none at
+     * all, since {@link #planTunnelPlacements} already retries this whole method several times and
+     * falls back to the proven shape-blind algorithm if every attempt fails. Shape is a cosmetic
+     * improvement; a Tunnel failing to generate at all is never an acceptable price for it.
+     */
+    private static TunnelPlanResult tryShapedTunnelPlan(MergeNode tree, double totalEdgeWeight, int roomCount, int entranceCount,
+            List<WyrldPrintRecord> connectors, List<WyrldPrintRecord> passThroughRooms, List<WyrldPrintRecord> forkRooms,
+            List<WyrldPrintRecord> endcapRooms, List<WyrldPrintRecord> entrances, RandomSource random) {
+        List<Placement> placements = new ArrayList<>();
+        Map<LocalPos, Boolean> occupied = new HashMap<>();
+        List<Frontier> leftoverFrontiers = new ArrayList<>();
+        Placement[] entranceByIndex = new Placement[entranceCount];
+        int[] roomsPlaced = {0};
+
+        Placement rootFork = new Placement(forkRooms.get(random.nextInt(forkRooms.size())), Rotation.NONE, 0, 0, 0);
+        placements.add(rootFork);
+        occupied.putAll(cellStates(rootFork));
+        roomsPlaced[0]++;
+        List<Frontier> rootForkFrontiers = new ArrayList<>();
+        addFrontiers(rootForkFrontiers, rootFork, 0);
+        if (rootForkFrontiers.size() < 2) {
+            return null; // the chosen fork piece doesn't actually have 2 usable points -- shouldn't happen given forkRooms' own filter, but never risk it.
+        }
+        List<Frontier> shuffledRootChildren = shuffled(rootForkFrontiers, random);
+        if (shuffledRootChildren.size() > 2) {
+            leftoverFrontiers.addAll(shuffledRootChildren.subList(2, shuffledRootChildren.size()));
+        }
+
+        int rootChildTarget = edgeTargetLength(roomCount, tree.mergeDistance(), totalEdgeWeight);
+        boolean leftOk = growShapedEdge(tree.left(), shuffledRootChildren.get(0), rootChildTarget, totalEdgeWeight, roomCount,
+                connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
+        if (!leftOk) {
+            return null;
+        }
+        boolean rightOk = growShapedEdge(tree.right(), shuffledRootChildren.get(1), rootChildTarget, totalEdgeWeight, roomCount,
+                connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
+        if (!rightOk) {
+            return null;
+        }
+        for (Placement p : entranceByIndex) {
+            if (p == null) {
+                return null; // a leaf never actually got its real-world entrance placed -- shouldn't happen if growShapedEdge returned true for both sides, but never trust that silently.
+            }
+        }
+
+        // Same closing pass as the shape-blind algorithm: every leftover frontier (an oversized
+        // fork's unused extra point, or a defensive surplus) gets a 1-door endcap room, or is
+        // sealed as a plain door if none exists/fits.
+        List<Frontier> unresolvedFrontiers = new ArrayList<>();
+        int closingBudget = Math.max(50, leftoverFrontiers.size() * 30);
+        int closingAttempts = 0;
+        while (!leftoverFrontiers.isEmpty() && closingAttempts < closingBudget) {
+            closingAttempts++;
+            Frontier frontier = leftoverFrontiers.remove(random.nextInt(leftoverFrontiers.size()));
+            Placement placed = endcapRooms.isEmpty() ? null : tryPlace(frontier, shuffled(endcapRooms, random), occupied, random);
+            if (placed == null) {
+                unresolvedFrontiers.add(frontier);
+                continue;
+            }
+            placements.add(placed);
+            occupied.putAll(cellStates(placed));
+            addFrontiers(leftoverFrontiers, placed, frontier.branchDepth());
+        }
+
+        Map<LocalPos, BlockState> doorSeals = sealUnresolvedFrontiers(unresolvedFrontiers, placements);
+        return new TunnelPlanResult(placements, List.of(entranceByIndex), doorSeals);
+    }
+
+    /** Grows exactly one edge of the shaped tree -- an ordinary (non-forking) chain of connectors/
+     *  2-door rooms of roughly {@code targetLength} hops off {@code entryFrontier}, terminating in
+     *  either the real ENTRANCE for {@code node} (a leaf) or a nested FORK continuing into both of
+     *  {@code node}'s own children (internal) -- see {@link #tryShapedTunnelPlan}'s own doc for the
+     *  full design. Deliberately never tries a fork or an endcap room mid-chain (only connectors/
+     *  2-door rooms) -- a fork may only ever appear exactly where the tree says one belongs, or the
+     *  whole point of this method (a layout that actually matches the tree's own shape) is lost.
+     *  @return {@code false} on any placement failure -- the caller abandons this whole attempt. */
+    private static boolean growShapedEdge(MergeNode node, Frontier entryFrontier, int targetLength, double totalEdgeWeight, int roomCount,
+            List<WyrldPrintRecord> connectors, List<WyrldPrintRecord> passThroughRooms, List<WyrldPrintRecord> forkRooms,
+            List<Placement> placements, Map<LocalPos, Boolean> occupied, Placement[] entranceByIndex, List<WyrldPrintRecord> entrances,
+            List<Frontier> leftoverFrontiers, int[] roomsPlaced, RandomSource random) {
+        Frontier frontier = entryFrontier;
+        int chainBudgetRemaining = targetLength;
+        int extraHops = 0;
+        int attemptBudget = Math.max(30, (targetLength + MAX_EXTRA_VARIANCE_HOPS) * 20 + 30);
+        int attempts = 0;
+        while (attempts < attemptBudget) {
+            boolean mustContinue = chainBudgetRemaining > 0;
+            boolean mayContinue = !mustContinue && extraHops < MAX_EXTRA_VARIANCE_HOPS && random.nextDouble() < EXTENSION_CHANCE;
+            if (!mustContinue && !mayContinue) {
+                break;
+            }
+            attempts++;
+            // Same invariant the shape-blind algorithm enforces (see this class's own top-level
+            // doc): a connector never chains directly onto another connector, only onto a room's
+            // (or an anchor's) own frontier -- real bug caught in review, where this used to try a
+            // connector unconditionally on every hop regardless of what the frontier's own owner
+            // piece was.
+            boolean frontierOwnedByConnector = frontier.ownerType() == WyrldPrintType.CONNECTOR;
+            Placement placed = frontierOwnedByConnector ? null : tryPlace(frontier, shuffled(connectors, random), occupied, random);
+            if (placed == null) {
+                placed = tryPlace(frontier, shuffled(passThroughRooms, random), occupied, random);
+            }
+            if (placed == null) {
+                return false;
+            }
+            placements.add(placed);
+            occupied.putAll(cellStates(placed));
+            if (placed.record().type() == WyrldPrintType.ROOM) {
+                roomsPlaced[0]++;
+            }
+            List<Frontier> next = new ArrayList<>();
+            addFrontiers(next, placed, frontier.branchDepth());
+            if (next.isEmpty()) {
+                return false; // picked a dead-end piece mid-chain -- connectors/2-door rooms should never do this, but never trust that silently.
+            }
+            frontier = next.get(0);
+            if (next.size() > 1) {
+                leftoverFrontiers.addAll(next.subList(1, next.size()));
+            }
+            if (mustContinue) {
+                chainBudgetRemaining--;
+            } else {
+                extraHops++;
+            }
+        }
+
+        if (node.isLeaf()) {
+            Placement entrancePlacement = tryPlace(frontier, shuffled(entrances, random), occupied, random);
+            if (entrancePlacement == null) {
+                return false;
+            }
+            placements.add(entrancePlacement);
+            occupied.putAll(cellStates(entrancePlacement));
+            entranceByIndex[node.leafEntranceIndex()] = entrancePlacement;
+            return true;
+        }
+
+        Placement fork = tryPlace(frontier, shuffled(forkRooms, random), occupied, random);
+        if (fork == null) {
+            return false;
+        }
+        placements.add(fork);
+        occupied.putAll(cellStates(fork));
+        roomsPlaced[0]++;
+        List<Frontier> forkChildren = new ArrayList<>();
+        addFrontiers(forkChildren, fork, frontier.branchDepth());
+        if (forkChildren.size() < 2) {
+            return false;
+        }
+        List<Frontier> shuffledChildren = shuffled(forkChildren, random);
+        if (shuffledChildren.size() > 2) {
+            leftoverFrontiers.addAll(shuffledChildren.subList(2, shuffledChildren.size()));
+        }
+        int childTarget = edgeTargetLength(roomCount, node.mergeDistance(), totalEdgeWeight);
+        boolean leftOk = growShapedEdge(node.left(), shuffledChildren.get(0), childTarget, totalEdgeWeight, roomCount,
+                connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
+        if (!leftOk) {
+            return false;
+        }
+        return growShapedEdge(node.right(), shuffledChildren.get(1), childTarget, totalEdgeWeight, roomCount,
+                connectors, passThroughRooms, forkRooms, placements, occupied, entranceByIndex, entrances, leftoverFrontiers, roomsPlaced, random);
+    }
+
     /** Identical sealing logic to {@link #planPlacements}'s own door-sealing pass (see its doc for
      *  the full rationale) -- factored out so the linear Tunnel chain above can reuse it exactly,
      *  rather than duplicating it a second time. */
@@ -759,7 +1083,7 @@ public final class OneOffGenerator {
     public static TunnelGenerateResult generateTunnel(MinecraftServer server, WyrldRecipe recipe,
                                                         List<net.minecraft.core.GlobalPos> dests,
                                                         com.github.cerealklla.tinywyrlds.instance.WyrldLifecycle lifecycle) {
-        TunnelPlanResult plan = planTunnelPlacements(recipe.minRooms(), recipe.tags(), dests.size());
+        TunnelPlanResult plan = planTunnelPlacements(recipe.minRooms(), recipe.tags(), dests.size(), dests);
         if (plan == null) {
             return null;
         }
