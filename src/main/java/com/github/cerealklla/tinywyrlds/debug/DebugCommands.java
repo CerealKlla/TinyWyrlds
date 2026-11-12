@@ -16,6 +16,8 @@ import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintType;
 import com.github.cerealklla.tinywyrlds.wyrldprint.WyrldPrintValidator;
 import com.github.cerealklla.tinywyrlds.wyrldprint.entrance.WyrldEntranceEntity;
 import com.github.cerealklla.tinywyrlds.wyrldprint.generate.OneOffGenerator;
+import com.github.cerealklla.tinywyrlds.wyrldprint.generate.TunnelGenerationRecord;
+import com.github.cerealklla.tinywyrlds.wyrldprint.generate.TunnelGenerationStorage;
 import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.LootTier;
 import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldEntityEntry;
 import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldLootEntry;
@@ -529,14 +531,28 @@ public final class DebugCommands {
      *  delete all the already generated settlement tunnel prynts, i'll go touch the doors to
      *  generate new ones now." Does not touch the saved WyrldPrint templates themselves or either
      *  door's own pairing/recipe -- only the cached generation result. */
+    /** Updated 2026-11-12 so it stays meaningful now that a fresh Tunnel generation is tracked by
+     *  its own real file ({@code TunnelGenerationStorage}, explicit user spec: "each tunnel [should
+     *  get] its own file in generateddungeons... so we don't have one-off commands to do things")
+     *  rather than {@code WyrldSpaceData#tunnelAssignments} -- still clears any not-yet-migrated
+     *  legacy assignment too, so a Tunnel generated before this file existed is covered either way.
+     *  Deleting a Tunnel's own file by hand works for triggering a fresh regeneration on next door
+     *  touch, but (unlike this command) can't free the old Wyrld's space, since nothing runs at the
+     *  moment of a raw filesystem delete -- this command is the one place that still matters for an
+     *  admin who actually wants that space reclaimed, not just a fresh layout. */
     private static int clearAllTunnelGenerations(CommandSourceStack source) {
         WyrldSpaceData data = WyrldSpaceData.get(source.getServer());
-        var assignments = data.allTunnelAssignments();
-        for (var entry : assignments.entrySet()) {
+        var legacyAssignments = data.allTunnelAssignments();
+        for (var entry : legacyAssignments.entrySet()) {
             WyrldManager.deleteWyrld(source.getServer(), entry.getValue());
             data.removeTunnelAssignment(entry.getKey());
         }
-        int count = assignments.size();
+        var fileRecords = TunnelGenerationStorage.get().listAll();
+        for (TunnelGenerationRecord record : fileRecords) {
+            WyrldManager.deleteWyrld(source.getServer(), record.wyrldInstanceId());
+            TunnelGenerationStorage.get().delete(record.groupId(), record.playerId());
+        }
+        int count = legacyAssignments.size() + fileRecords.size();
         source.sendSuccess(() -> Component.literal("Cleared " + count + " generated Tunnel instance(s) -- "
                 + "the next door touch on each pair will regenerate fresh."), false);
         return count;

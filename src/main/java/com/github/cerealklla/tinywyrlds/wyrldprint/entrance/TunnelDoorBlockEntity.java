@@ -12,6 +12,8 @@ import com.github.cerealklla.tinywyrlds.instance.WyrldManager;
 import com.github.cerealklla.tinywyrlds.registration.ModBlockEntities;
 import com.github.cerealklla.tinywyrlds.space.WyrldSpaceData;
 import com.github.cerealklla.tinywyrlds.wyrldprint.generate.OneOffGenerator;
+import com.github.cerealklla.tinywyrlds.wyrldprint.generate.TunnelGenerationRecord;
+import com.github.cerealklla.tinywyrlds.wyrldprint.generate.TunnelGenerationStorage;
 import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldRecipe;
 import com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldRecipeStorage;
 
@@ -98,22 +100,42 @@ public class TunnelDoorBlockEntity extends BlockEntity {
             return;
         }
         MinecraftServer server = player.level().getServer();
-        String assignmentKey = lifecycle == WyrldLifecycle.PUBLIC ? groupId.toString() : groupId + ":" + player.getUUID();
+        Optional<UUID> filePlayerId = lifecycle == WyrldLifecycle.PUBLIC ? Optional.empty() : Optional.of(player.getUUID());
 
-        Optional<UUID> existingWyrldId = WyrldSpaceData.get(server).getTunnelAssignment(assignmentKey);
-        if (existingWyrldId.isPresent()) {
-            Optional<WyrldInstanceRecord> existingInstance = WyrldSpaceData.get(server).getInstance(existingWyrldId.get());
+        // Real-file-is-the-authority self-heal, explicit user spec: "each tunnel [should get] its
+        // own file in generateddungeons, so that it would be as simple as deleting a file there...
+        // and the server would self-heal... so that we don't have one-off commands to do things."
+        // TunnelGenerationRecord's own file (not WyrldSpaceData#tunnelAssignments, a map entry
+        // buried inside one shared, server-wide save file with no per-tunnel handle at all) is now
+        // what this checks -- present and still pointing at a real instance means resume; missing
+        // (an admin deleted it on disk) or dangling means generate fresh, with no command involved
+        // either way.
+        UUID wyrldId = TunnelGenerationStorage.get().load(groupId, filePlayerId).map(TunnelGenerationRecord::wyrldInstanceId).orElse(null);
+        if (wyrldId == null) {
+            // One-time migration for a Tunnel generated before this file existed: adopt its old
+            // WyrldSpaceData assignment into a real file, then immediately retire that legacy
+            // entry -- if it stayed, a later file-delete could get silently resurrected by it,
+            // defeating the whole point of making the file the one source of truth.
+            String assignmentKey = lifecycle == WyrldLifecycle.PUBLIC ? groupId.toString() : groupId + ":" + player.getUUID();
+            Optional<UUID> legacy = WyrldSpaceData.get(server).getTunnelAssignment(assignmentKey);
+            if (legacy.isPresent()) {
+                wyrldId = legacy.get();
+                TunnelGenerationStorage.get().save(new TunnelGenerationRecord(groupId, filePlayerId, wyrldId));
+                WyrldSpaceData.get(server).removeTunnelAssignment(assignmentKey);
+            }
+        }
+        if (wyrldId != null) {
+            Optional<WyrldInstanceRecord> existingInstance = WyrldSpaceData.get(server).getInstance(wyrldId);
             if (existingInstance.isPresent()) {
                 Optional<BlockPos> spawn = existingInstance.get().tunnelSpawn(roleIndex);
                 if (spawn.isPresent()) {
-                    WyrldManager.enterAt(player, existingWyrldId.get(), spawn.get());
+                    WyrldManager.enterAt(player, wyrldId, spawn.get());
                     return;
                 }
             }
-            // The remembered instance was wiped (shouldn't normally happen for PUBLIC, which is
-            // swept-exempt -- but an INSTANCED assignment has no such protection) or never got a
-            // real spawn point for some reason -- fall through and generate fresh rather than
-            // leaving the player stuck with a dead assignment forever.
+            // The pointed-to instance was wiped or never got a real spawn point -- fall through
+            // and generate fresh rather than leaving the player stuck with a dead pointer forever;
+            // the stale file gets overwritten below once a fresh instance actually exists.
         }
 
         WyrldRecipe recipe = WyrldRecipeStorage.get().load(recipeName).orElse(null);
@@ -139,7 +161,7 @@ public class TunnelDoorBlockEntity extends BlockEntity {
             TinyWyrldsMod.LOGGER.warn("TunnelDoorBlockEntity: freshly-generated Tunnel group {} has {} spawn point(s), but this door's roleIndex is {} -- state is out of sync.", groupId, result.spawns().size(), roleIndex);
             return;
         }
-        WyrldSpaceData.get(server).putTunnelAssignment(assignmentKey, result.instance().id());
+        TunnelGenerationStorage.get().save(new TunnelGenerationRecord(groupId, filePlayerId, result.instance().id()));
         WyrldManager.enterAt(player, result.instance().id(), result.spawns().get(roleIndex));
     }
 
