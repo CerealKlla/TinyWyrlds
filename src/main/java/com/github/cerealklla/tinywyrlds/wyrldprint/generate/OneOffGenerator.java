@@ -864,32 +864,61 @@ public final class OneOffGenerator {
         return Math.sqrt(df * df + dl * dl);
     }
 
+    /** @param leftIndex index into the candidate's own direction list the left child should use.
+     *  @param rightIndex same, for the right child. @param score the total alignment achieved --
+     *  what {@link #bestForkPlacement}/{@link #bestFreeForkPlacement} compare ACROSS different fork
+     *  candidates with, not just within one fork's own already-fixed exits (real follow-up fix,
+     *  2026-11-12 -- see those methods' own doc for why {@link #bestDirectionAssignment} choosing
+     *  well among one fork's exits was never enough on its own). */
+    record DirectionAssignment(int leftIndex, int rightIndex, double score) {
+    }
+
     /** Picks which 2 of {@code availableDirections} (each a {@code (dx, dz)} vector -- a wall
      *  point's own real facing, or {@code {0, 0}} for a floor point with no facing to match) to
      *  send {@code leftDirection}/{@code rightDirection} through, by maximizing total alignment
      *  (dot product) between each chosen pair -- so each child heads out through whichever of the
      *  fork's own real door directions actually points closest to where that child needs to go.
      *
-     * <p>This is THE place direction gets decided, not {@link #growTowardTarget}'s own mid-chain
+     * <p>This is A place direction gets decided, not {@link #growTowardTarget}'s own mid-chain
      * steering -- real, confirmed-live regression, 2026-11-12 (a 611-piece Tunnel, entrances
      * scattered hundreds of cells off target): every ordinary connector/2-door room in this
      * catalog is a straight pass-through, so once a chain leaves a fork in some direction, nothing
      * downstream can ever turn it -- picking "whichever placement lands closest to the target" at
      * every hop had no actual leverage, since all of them land in essentially the same direction
-     * regardless of which one is chosen. The only real lever is which of the fork's own doors a
-     * child gets routed through in the first place.
+     * regardless of which one is chosen.
      *
-     * <p>Pure {@code double[]}/{@code int[]} math, no Minecraft types at all -- deliberately, so
-     * this (the actual decision at risk of getting direction wrong) is directly unit-testable with
-     * synthetic and real-world-derived vectors, without a live registry (see
-     * {@code OneOffGeneratorTest}). Brute-force over every ordered pair -- at most a 4-way fork's
-     * 4 choose 2 ordered pairs (12), trivially cheap.
-     * @return {@code {leftIndex, rightIndex}} into {@code availableDirections}; {@code {-1, -1}}
-     * if fewer than 2 directions are available at all. */
-    static int[] bestDirectionAssignment(List<double[]> availableDirections, double[] leftDirection, double[] rightDirection) {
+     * <p><b>This alone was still not enough -- a second real, confirmed-live bug, same day.</b>
+     * This function can only choose among whichever exits a SPECIFIC, already-placed fork happens
+     * to have; it has no say in which fork piece or rotation got placed in the first place, and
+     * that choice was still plain first-match (see {@code tryPlace}), with zero bearing awareness.
+     * A fork offering only east/west exits could get placed even when both children actually
+     * needed north/south -- confirmed against the real, live {@code exit_bindings} data (not a
+     * guess): role 3 and role 4 are due north/south of each other in the real world, but landed
+     * due east/west of each other in the generated Tunnel, a full 90-degree miss, because the
+     * fork placed between them simply never had a north or south exit to offer. See
+     * {@link #bestForkPlacement}/{@link #bestFreeForkPlacement} for the actual fix -- evaluating
+     * every valid fork candidate's own resulting score via this method, not just trusting whatever
+     * the first one happens to offer.
+     *
+     * <p>Pure {@code double[]} math, no Minecraft types at all -- deliberately, so this (the actual
+     * decision at risk of getting direction wrong) is directly unit-testable with synthetic and
+     * real-world-derived vectors, without a live registry (see {@code OneOffGeneratorTest}).
+     * Brute-force over every ordered pair -- at most a 4-way fork's 4 choose 2 ordered pairs (12),
+     * trivially cheap. The returned score is a sum of two COSINE similarities (each in {@code
+     * [-1, 1]}, so the total is in {@code [-2, 2]}) rather than a raw dot product -- real review
+     * finding: a raw dot product's magnitude scales with how far away the target is, which made
+     * {@link #FORK_SCORE_TOLERANCE} (a fixed number) mean wildly different things depending on
+     * target distance; normalizing by each direction vector's own magnitude makes the score (and
+     * therefore the tolerance) consistent regardless of distance, without changing which index
+     * wins for any single call (dividing by a positive per-call constant never changes an argmax).
+     * @return indices into {@code availableDirections}, plus the resulting score; index {@code -1}
+     * (score {@link Double#NEGATIVE_INFINITY}) if fewer than 2 directions are available at all. */
+    static DirectionAssignment bestDirectionAssignment(List<double[]> availableDirections, double[] leftDirection, double[] rightDirection) {
         if (availableDirections.size() < 2) {
-            return new int[]{-1, -1};
+            return new DirectionAssignment(-1, -1, Double.NEGATIVE_INFINITY);
         }
+        double leftMagnitude = Math.max(0.0001, magnitude(leftDirection));
+        double rightMagnitude = Math.max(0.0001, magnitude(rightDirection));
         int bestLeft = 0;
         int bestRight = 1;
         double bestScore = Double.NEGATIVE_INFINITY;
@@ -898,7 +927,8 @@ public final class OneOffGenerator {
                 if (i == j) {
                     continue;
                 }
-                double score = dot(availableDirections.get(i), leftDirection) + dot(availableDirections.get(j), rightDirection);
+                double score = dot(availableDirections.get(i), leftDirection) / leftMagnitude
+                        + dot(availableDirections.get(j), rightDirection) / rightMagnitude;
                 if (score > bestScore) {
                     bestScore = score;
                     bestLeft = i;
@@ -906,11 +936,138 @@ public final class OneOffGenerator {
                 }
             }
         }
-        return new int[]{bestLeft, bestRight};
+        return new DirectionAssignment(bestLeft, bestRight, bestScore);
+    }
+
+    private static double magnitude(double[] v) {
+        return Math.sqrt(v[0] * v[0] + v[1] * v[1]);
     }
 
     private static double dot(double[] a, double[] b) {
         return a[0] * b[0] + a[1] * b[1];
+    }
+
+    /** How much worse (in {@link #bestDirectionAssignment}'s own score units) a fork candidate may
+     *  be than the single best one and still be eligible for random selection -- same
+     *  "evaluate everything, then break ties randomly" shape {@link #STEER_TOLERANCE}/{@link
+     *  #pickClosestAdvance} already use. Two real review findings fixed by this, together: (1) with
+     *  no tolerance at all, {@link #bestFreeForkPlacement} became a pure deterministic function of
+     *  its inputs, so every one of {@link #SHAPE_ATTEMPTS}' retries picked the IDENTICAL root fork
+     *  -- if its downstream growth collided and failed once, every retry failed the same way,
+     *  collapsing the retries' whole point. (2) rigid maximization also systematically favors
+     *  whichever saved fork room simply has the MOST exit points (more points means more candidate
+     *  pairs to maximize {@link #bestDirectionAssignment}'s score over, which can tie-or-beat a
+     *  piece with fewer points purely from having a larger search space), silently starving other
+     *  fork rooms from ever being picked -- the same "my room never gets selected" class of bug
+     *  {@code selectiontest} exists to catch elsewhere in this file. Random tie-breaking among
+     *  near-equally-good candidates addresses both without abandoning the real fix (still never
+     *  picks a candidate that's actually WORSE by more than this tolerance). In {@link
+     *  #bestDirectionAssignment}'s own normalized-cosine-similarity score units ({@code [-2, 2]}
+     *  total, not raw cell distances -- real review finding, a fixed tolerance against the OLD raw
+     *  dot-product score meant wildly different things depending on how far away the target was). */
+    private static final double FORK_SCORE_TOLERANCE = 0.5;
+
+    /** Every one of {@code candidate}'s own exit directions (its non-consumed points' facings, or
+     *  {@code {0, 0}} for a floor point), as a list ready for {@link #bestDirectionAssignment}. A
+     *  plain {@code 0} branch depth is correct for every real caller here -- both only ever score
+     *  fork-room candidates ({@code points().size() > 2}), which {@link #addFrontiers} always
+     *  resets to depth 0 regardless of the parent's own depth (real review finding: an earlier
+     *  draft threaded a {@code parentBranchDepth} parameter through this whole cluster of methods
+     *  that never actually changed the result). */
+    private static List<double[]> exitDirectionsOf(Placement candidate) {
+        List<Frontier> exits = new ArrayList<>();
+        addFrontiers(exits, candidate, 0);
+        List<double[]> directions = new ArrayList<>();
+        for (Frontier exit : exits) {
+            directions.add(facingDirectionVector(exit));
+        }
+        return directions;
+    }
+
+    /** A wall frontier's own real facing as a {@code (dx, dz)} vector, or {@code {0, 0}} for a
+     *  floor point with no facing to match -- shared by {@link #exitDirectionsOf} and {@link
+     *  #assignForkChildren} (real review finding: this was duplicated verbatim in both). */
+    private static double[] facingDirectionVector(Frontier frontier) {
+        return frontier.facing().map(d -> new double[]{d.getStepX(), d.getStepZ()}).orElse(new double[]{0, 0});
+    }
+
+    /** How well {@code candidate}'s own resulting exits could serve {@code leftTarget}/
+     *  {@code rightTarget} (direction computed from {@code candidate}'s OWN origin, which differs
+     *  per candidate) -- {@link Double#NEGATIVE_INFINITY} if it doesn't even offer 2 usable exits. */
+    private static double scoreForkCandidate(Placement candidate, int[] leftTarget, int[] rightTarget) {
+        List<double[]> exitDirections = exitDirectionsOf(candidate);
+        if (exitDirections.size() < 2) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        double[] leftDirection = {leftTarget[0] - candidate.originForward(), leftTarget[1] - candidate.originLateral()};
+        double[] rightDirection = {rightTarget[0] - candidate.originForward(), rightTarget[1] - candidate.originLateral()};
+        return bestDirectionAssignment(exitDirections, leftDirection, rightDirection).score();
+    }
+
+    /** Picks which valid fork placement (piece + rotation) at {@code frontier} gives the two
+     *  children the best-aligned pair of exits to route through -- see {@link
+     *  #bestDirectionAssignment}'s own doc for the real, confirmed-live bug this fixes (a
+     *  first-match fork pick could offer exits in completely the wrong direction, with nothing
+     *  downstream able to correct it). Evaluates every valid candidate (via {@link
+     *  #candidatePlacementsAt}, not just the first) and randomly picks among whichever are within
+     *  {@link #FORK_SCORE_TOLERANCE} of the best -- see that constant's own doc for why a rigid
+     *  "always the single best" pick caused its own real problems.
+     *  @return {@code null} if no valid fork placement exists here at all (logged -- the real
+     *  equivalent of {@code tryPlace}'s own "no match" diagnostic, so a future dead-end here has a
+     *  log trail instead of needing another live-debugging round). */
+    private static Placement bestForkPlacement(Frontier frontier, List<WyrldPrintRecord> forkRooms, Map<LocalPos, Boolean> occupied,
+            int[] leftTarget, int[] rightTarget, RandomSource random) {
+        List<Placement> candidates = candidatePlacementsAt(frontier, forkRooms, occupied);
+        Placement best = pickBestForkCandidate(candidates, leftTarget, rightTarget, random);
+        if (best == null) {
+            com.github.cerealklla.tinywyrlds.TinyWyrldsMod.LOGGER.info(
+                    "bestForkPlacement: no usable fork candidate for frontier (wall={}, facing={}) among {} fork room(s)",
+                    frontier.wall(), frontier.facing(), forkRooms.size());
+        }
+        return best;
+    }
+
+    /** Same idea as {@link #bestForkPlacement}, for the tree's own root -- a free placement with no
+     *  entry frontier to satisfy, so every {@code (piece, rotation)} combination is a candidate,
+     *  not just whichever ones happen to match a given entry facing. Falls back to a plain random
+     *  pick (the old behavior) only if literally nothing offers 2 usable exits -- shouldn't happen
+     *  given {@code forkRooms}' own point-count filter, but never risk it. */
+    private static Placement bestFreeForkPlacement(List<WyrldPrintRecord> forkRooms, int[] leftTarget, int[] rightTarget, RandomSource random) {
+        List<Placement> candidates = new ArrayList<>();
+        for (WyrldPrintRecord record : forkRooms) {
+            for (Rotation rotation : ALL_ROTATIONS) {
+                candidates.add(new Placement(record, rotation, 0, 0, 0));
+            }
+        }
+        Placement best = pickBestForkCandidate(candidates, leftTarget, rightTarget, random);
+        return best != null ? best : new Placement(forkRooms.get(random.nextInt(forkRooms.size())), Rotation.NONE, 0, 0, 0);
+    }
+
+    /** Shared by {@link #bestForkPlacement}/{@link #bestFreeForkPlacement}: scores every candidate,
+     *  then picks randomly among whichever are within {@link #FORK_SCORE_TOLERANCE} of the best --
+     *  see that constant's own doc. Two passes, deliberately, same reasoning as {@link
+     *  #pickClosestAdvance}'s own doc (a single online pass that clears its tolerance set on every
+     *  improvement would drop earlier candidates that still qualify under the final best).
+     *  @return {@code null} if {@code candidates} is empty or none score at all. */
+    private static Placement pickBestForkCandidate(List<Placement> candidates, int[] leftTarget, int[] rightTarget, RandomSource random) {
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (Placement candidate : candidates) {
+            double score = scoreForkCandidate(candidate, leftTarget, rightTarget);
+            if (score > bestScore) {
+                bestScore = score;
+            }
+        }
+        if (bestScore == Double.NEGATIVE_INFINITY) {
+            return null;
+        }
+        List<Placement> best = new ArrayList<>();
+        for (Placement candidate : candidates) {
+            double score = scoreForkCandidate(candidate, leftTarget, rightTarget);
+            if (score >= bestScore - FORK_SCORE_TOLERANCE) {
+                best.add(candidate);
+            }
+        }
+        return best.get(random.nextInt(best.size()));
     }
 
     /** Wires {@link #bestDirectionAssignment} up to real {@link Frontier}s: picks which 2 of
@@ -926,15 +1083,15 @@ public final class OneOffGenerator {
         double[] rightDirection = {rightTarget[0] - originForward, rightTarget[1] - originLateral};
         List<double[]> availableDirections = new ArrayList<>();
         for (Frontier candidate : availableFrontiers) {
-            availableDirections.add(candidate.facing().map(d -> new double[]{d.getStepX(), d.getStepZ()}).orElse(new double[]{0, 0}));
+            availableDirections.add(facingDirectionVector(candidate));
         }
-        int[] assignment = bestDirectionAssignment(availableDirections, leftDirection, rightDirection);
+        DirectionAssignment assignment = bestDirectionAssignment(availableDirections, leftDirection, rightDirection);
         for (int i = 0; i < availableFrontiers.size(); i++) {
-            if (i != assignment[0] && i != assignment[1]) {
+            if (i != assignment.leftIndex() && i != assignment.rightIndex()) {
                 leftoverFrontiers.add(availableFrontiers.get(i));
             }
         }
-        return new Frontier[]{availableFrontiers.get(assignment[0]), availableFrontiers.get(assignment[1])};
+        return new Frontier[]{availableFrontiers.get(assignment.leftIndex()), availableFrontiers.get(assignment.rightIndex())};
     }
 
     /**
@@ -987,7 +1144,9 @@ public final class OneOffGenerator {
         double maxRadius = maxLeafRadius(tree, groupCentroidX, groupCentroidZ);
         double scale = maxRadius <= 0 ? 1.0 : Math.min(1.0, TARGET_SPREAD_CELLS / maxRadius);
 
-        Placement rootFork = new Placement(forkRooms.get(random.nextInt(forkRooms.size())), Rotation.NONE, 0, 0, 0);
+        int[] leftTarget = targetLocalCoord(tree.left(), groupCentroidX, groupCentroidZ, scale);
+        int[] rightTarget = targetLocalCoord(tree.right(), groupCentroidX, groupCentroidZ, scale);
+        Placement rootFork = bestFreeForkPlacement(forkRooms, leftTarget, rightTarget, random);
         placements.add(rootFork);
         occupied.putAll(cellStates(rootFork));
         roomsPlaced[0]++;
@@ -998,8 +1157,6 @@ public final class OneOffGenerator {
             return null; // the chosen fork piece doesn't actually have 2 usable points -- shouldn't happen given forkRooms' own filter, but never risk it.
         }
 
-        int[] leftTarget = targetLocalCoord(tree.left(), groupCentroidX, groupCentroidZ, scale);
-        int[] rightTarget = targetLocalCoord(tree.right(), groupCentroidX, groupCentroidZ, scale);
         Frontier[] rootChildren = assignForkChildren(rootForkFrontiers, rootFork.originForward(), rootFork.originLateral(),
                 leftTarget, rightTarget, leftoverFrontiers);
         boolean leftOk = growTowardTarget(tree.left(), rootChildren[0], leftTarget[0], leftTarget[1], groupCentroidX, groupCentroidZ, scale,
@@ -1114,7 +1271,9 @@ public final class OneOffGenerator {
             return true;
         }
 
-        Placement fork = tryPlace(frontier, shuffled(forkRooms, random), occupied, random);
+        int[] leftTarget = targetLocalCoord(node.left(), groupCentroidX, groupCentroidZ, scale);
+        int[] rightTarget = targetLocalCoord(node.right(), groupCentroidX, groupCentroidZ, scale);
+        Placement fork = bestForkPlacement(frontier, forkRooms, occupied, leftTarget, rightTarget, random);
         if (fork == null) {
             return false;
         }
@@ -1127,8 +1286,6 @@ public final class OneOffGenerator {
         if (forkChildren.size() < 2) {
             return false;
         }
-        int[] leftTarget = targetLocalCoord(node.left(), groupCentroidX, groupCentroidZ, scale);
-        int[] rightTarget = targetLocalCoord(node.right(), groupCentroidX, groupCentroidZ, scale);
         Frontier[] assignedChildren = assignForkChildren(forkChildren, fork.originForward(), fork.originLateral(),
                 leftTarget, rightTarget, leftoverFrontiers);
         boolean leftOk = growTowardTarget(node.left(), assignedChildren[0], leftTarget[0], leftTarget[1], groupCentroidX, groupCentroidZ, scale,
