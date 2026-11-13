@@ -276,4 +276,29 @@ public final class TinyWyrlds {
             }
         }
     }
+
+    /** {@code true} if {@code dimension} is this mod's one shared Wyrld Space dimension -- for a
+     *  caller (e.g. Lyfe's minimap) that needs to special-case behavior while a player is inside
+     *  any Wyrld (Tunnel, tutorial dungeon, or otherwise), without needing to know this mod's raw
+     *  dimension id itself. */
+    public static boolean isWyrldSpace(net.minecraft.resources.ResourceKey<net.minecraft.world.level.Level> dimension) {
+        return dimension.equals(com.github.cerealklla.tinywyrlds.space.WyrldSpaceDimension.KEY);
+    }
+
+    /** Which real saved piece (room/connector/entrance/Tunnel piece) {@code player} is currently
+     *  standing inside, and that piece's own real-world AABB in Wyrld Space -- built for Lyfe's
+     *  minimap (explicit user request, 2026-11-12: show only the current piece, switching as the
+     *  player moves between them, instead of a normal scrolling-radius view). See {@code
+     *  generate.OneOffGenerator#resolveCurrentPiece}'s own doc for exactly how this is resolved and
+     *  when it returns empty (not inside any Wyrld at all, this Wyrld predates the feature, or the
+     *  position isn't inside any single piece's own footprint).
+     *  @return empty if {@code player} isn't currently inside a Wyrld at all. */
+    public static Optional<com.github.cerealklla.tinywyrlds.wyrldprint.generate.OneOffGenerator.CurrentPieceInfo> getCurrentPiece(ServerPlayer player) {
+        Optional<UUID> wyrldId = player.getData(com.github.cerealklla.tinywyrlds.registration.ModAttachments.WYRLD_DATA).currentWyrldId();
+        if (wyrldId.isEmpty()) {
+            return Optional.empty();
+        }
+        return com.github.cerealklla.tinywyrlds.space.WyrldSpaceData.get(player.level().getServer()).getInstance(wyrldId.get())
+                .flatMap(instance -> com.github.cerealklla.tinywyrlds.wyrldprint.generate.OneOffGenerator.resolveCurrentPiece(instance, player.blockPosition()));
+    }
 }

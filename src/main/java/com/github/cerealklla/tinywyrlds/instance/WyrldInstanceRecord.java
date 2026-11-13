@@ -9,6 +9,7 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import com.github.cerealklla.tinywyrlds.space.FreeRect;
+import com.github.cerealklla.tinywyrlds.wyrldprint.generate.GeneratedDungeonRecord;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.UUIDUtil;
@@ -30,10 +31,20 @@ import net.minecraft.core.UUIDUtil;
  * to an arbitrary-length list, 2026-11-12, for Tunnels with more than 2 real-world doors (explicit
  * user spec: "certain settlements could have multiple entrances to the same underground sewer
  * system").
- */
+ *
+ * <p>{@code placements} added 2026-11-12, for Lyfe's minimap (explicit user request: a per-room
+ * minimap view inside Wyrld Space, instead of the normal scrolling/rotating overworld one) --
+ * every real piece this instance was stamped from, reusing {@code GeneratedDungeonRecord
+ * .SavedPlacement} directly rather than inventing a parallel type, since it's the exact same shape
+ * (piece name/type, rotation, local origin) already saved there for ordinary dungeons' own
+ * regenerate feature. Stored directly on the instance -- not a reference to a separate {@code
+ * GeneratedDungeonRecord}/{@code TunnelGenerationRecord} id -- so "what room is this position in"
+ * never needs to know or care which generation path (ordinary dungeon vs. Tunnel) actually built
+ * this instance; see {@code generate.OneOffGenerator#resolveCurrentPiece}. Default empty for every
+ * pre-existing instance, which simply never offers this lookup. */
 public record WyrldInstanceRecord(UUID id, FreeRect fullRect, FreeRect innerRect, int baselineY, WyrldState state,
                                    long lastActiveGameTime, WyrldLifecycle lifecycle, List<WyrldExitBinding> exitBindings,
-                                   List<BlockPos> tunnelSpawns) {
+                                   List<BlockPos> tunnelSpawns, List<GeneratedDungeonRecord.SavedPlacement> placements) {
 
     public static final Codec<WyrldInstanceRecord> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             UUIDUtil.CODEC.fieldOf("id").forGetter(WyrldInstanceRecord::id),
@@ -49,8 +60,9 @@ public record WyrldInstanceRecord(UUID id, FreeRect fullRect, FreeRect innerRect
             // these two never get written again (see the getters below), only read back once to
             // rebuild an equivalent tunnel_spawns list for an already-persisted Tunnel instance.
             BlockPos.CODEC.optionalFieldOf("tunnel_spawn_a").forGetter(r -> Optional.<BlockPos>empty()),
-            BlockPos.CODEC.optionalFieldOf("tunnel_spawn_b").forGetter(r -> Optional.<BlockPos>empty())
-    ).apply(instance, (id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, exitBindings, tunnelSpawns, legacySpawnA, legacySpawnB) -> {
+            BlockPos.CODEC.optionalFieldOf("tunnel_spawn_b").forGetter(r -> Optional.<BlockPos>empty()),
+            GeneratedDungeonRecord.SavedPlacement.CODEC.listOf().optionalFieldOf("placements", List.of()).forGetter(WyrldInstanceRecord::placements)
+    ).apply(instance, (id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, exitBindings, tunnelSpawns, legacySpawnA, legacySpawnB, placements) -> {
         List<BlockPos> resolvedSpawns = tunnelSpawns;
         if (resolvedSpawns.isEmpty() && (legacySpawnA.isPresent() || legacySpawnB.isPresent())) {
             List<BlockPos> rebuilt = new ArrayList<>();
@@ -58,25 +70,29 @@ public record WyrldInstanceRecord(UUID id, FreeRect fullRect, FreeRect innerRect
             legacySpawnB.ifPresent(rebuilt::add);
             resolvedSpawns = rebuilt;
         }
-        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, exitBindings, resolvedSpawns);
+        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, exitBindings, resolvedSpawns, placements);
     }));
 
     public WyrldInstanceRecord withState(WyrldState newState, long gameTime) {
-        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, newState, gameTime, lifecycle, exitBindings, tunnelSpawns);
+        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, newState, gameTime, lifecycle, exitBindings, tunnelSpawns, placements);
     }
 
     public WyrldInstanceRecord withLifecycle(WyrldLifecycle newLifecycle) {
-        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, newLifecycle, exitBindings, tunnelSpawns);
+        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, newLifecycle, exitBindings, tunnelSpawns, placements);
     }
 
     public WyrldInstanceRecord withExitBindings(List<WyrldExitBinding> newExitBindings) {
-        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, newExitBindings, tunnelSpawns);
+        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, newExitBindings, tunnelSpawns, placements);
     }
 
     /** @param spawns one spawn point per real-world door, indexed by that door's own {@code
      *  roleIndex} within its Tunnel group. */
     public WyrldInstanceRecord withTunnelSpawns(List<BlockPos> spawns) {
-        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, exitBindings, spawns);
+        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, exitBindings, spawns, placements);
+    }
+
+    public WyrldInstanceRecord withPlacements(List<GeneratedDungeonRecord.SavedPlacement> newPlacements) {
+        return new WyrldInstanceRecord(id, fullRect, innerRect, baselineY, state, lastActiveGameTime, lifecycle, exitBindings, tunnelSpawns, newPlacements);
     }
 
     public Optional<BlockPos> tunnelSpawn(int roleIndex) {

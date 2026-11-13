@@ -1562,10 +1562,84 @@ public final class OneOffGenerator {
                 bindings.add(new com.github.cerealklla.tinywyrlds.instance.WyrldExitBinding(pos, dest));
             }
         }
-        WyrldInstanceRecord finalInstance = instance.withExitBindings(bindings).withTunnelSpawns(spawns);
+        // See the identical comment in stamp() -- same WyrldInstanceRecord#placements, so "what
+        // room is this position in" works the same for a Tunnel as for an ordinary dungeon.
+        List<GeneratedDungeonRecord.SavedPlacement> savedPlacements = plan.placements().stream()
+                .map(p -> new GeneratedDungeonRecord.SavedPlacement(p.record().name(), p.record().type(), p.rotation(),
+                        p.originForward(), p.originLateral(), p.originY()))
+                .toList();
+        WyrldInstanceRecord finalInstance = instance.withExitBindings(bindings).withTunnelSpawns(spawns).withPlacements(savedPlacements);
         com.github.cerealklla.tinywyrlds.space.WyrldSpaceData.get(server).putInstance(finalInstance);
 
         return new TunnelGenerateResult(finalInstance, spawns);
+    }
+
+    /** @param minCorner/@param maxCornerExclusive the piece's own real-world AABB inside Wyrld
+     *  Space, in the same coordinate space {@code worldPos} was given in. */
+    public record CurrentPieceInfo(String pieceName, WyrldPrintType pieceType, BlockPos minCorner, BlockPos maxCornerExclusive) {
+    }
+
+    /** Resolves which of {@code instance}'s own saved {@link WyrldInstanceRecord#placements}
+     *  contains {@code worldPos} (a real block position inside the {@code tinywyrlds:wyrld_space}
+     *  dimension), and that piece's own real-world AABB -- built for Lyfe's minimap (explicit user
+     *  request, 2026-11-12: "show only the full room/connector/entrance/tunnel room that we are
+     *  inside," switching as the player moves between pieces, instead of a normal scrolling-radius
+     *  view).
+     *
+     * <p>Deliberately recomputes the local-to-world offset from the saved placements themselves
+     * (re-deriving {@code minF}/{@code minL} across all of them, exactly like {@link #stamp}/
+     * {@link #stampTunnel} do before ever creating the Wyrld) rather than persisting that offset
+     * separately -- it's a pure, deterministic function of the already-saved placement data, so
+     * there's nothing to keep in sync by storing it twice. Re-fetches each placement's own {@link
+     * WyrldPrintRecord} by name/type (same as {@link #regenerate}'s own re-stamp path) -- a saved
+     * WyrldPrint edited/renamed/deleted since this instance was generated is skipped rather than
+     * failing the whole lookup, since a stale read shouldn't be able to break something as minor
+     * as the minimap.
+     *
+     * @return empty if {@code instance} has no saved placements at all (every instance from before
+     * this feature existed), or {@code worldPos} isn't inside any single one of them (e.g. a
+     * connecting corridor cell that was never really "inside" any one room's own footprint to
+     * begin with -- the caller falls back to whatever it already does for that case). */
+    public static Optional<CurrentPieceInfo> resolveCurrentPiece(WyrldInstanceRecord instance, BlockPos worldPos) {
+        if (instance.placements().isEmpty()) {
+            return Optional.empty();
+        }
+        List<Placement> placements = new ArrayList<>();
+        for (GeneratedDungeonRecord.SavedPlacement saved : instance.placements()) {
+            WyrldPrintStorage.get().load(saved.pieceName())
+                    .filter(r -> r.type() == saved.pieceType())
+                    .ifPresent(piece -> placements.add(new Placement(piece, saved.rotation(),
+                            saved.originForward(), saved.originLateral(), saved.originY())));
+        }
+        if (placements.isEmpty()) {
+            return Optional.empty();
+        }
+
+        int minF = Integer.MAX_VALUE, minL = Integer.MAX_VALUE;
+        for (Placement placement : placements) {
+            int[] box = worldBoundingBox(placement);
+            minF = Math.min(minF, box[0]);
+            minL = Math.min(minL, box[2]);
+        }
+        FreeRect inner = instance.innerRect();
+        int worldForwardOffset = inner.x1() + MARGIN - minF;
+        int worldLateralOffset = inner.z1() + MARGIN - minL;
+
+        int localForward = worldPos.getX() - worldForwardOffset;
+        int localLateral = worldPos.getZ() - worldLateralOffset;
+        int localY = worldPos.getY() - WyrldManager.BASELINE_Y;
+
+        for (Placement placement : placements) {
+            int[] box = worldBoundingBox(placement);
+            if (localForward >= box[0] && localForward < box[1]
+                    && localLateral >= box[2] && localLateral < box[3]
+                    && localY >= box[4] && localY < box[5]) {
+                BlockPos min = new BlockPos(worldForwardOffset + box[0], WyrldManager.BASELINE_Y + box[4], worldLateralOffset + box[2]);
+                BlockPos max = new BlockPos(worldForwardOffset + box[1], WyrldManager.BASELINE_Y + box[5], worldLateralOffset + box[3]);
+                return Optional.of(new CurrentPieceInfo(placement.record().name(), placement.record().type(), min, max));
+            }
+        }
+        return Optional.empty();
     }
 
     private static Optional<BlockPos> tunnelSpawnPos(Placement anchor, int worldForwardOffset, int worldLateralOffset) {
@@ -1913,7 +1987,18 @@ public final class OneOffGenerator {
                 spawnPoints.add(new BlockPos(worldX, worldY, worldZ));
             }
         }
-        return new GenerateResult(instance, spawnPoints, dungeonId, spawnedEnemyIds);
+
+        // Saved onto the instance itself (not just the GeneratedDungeonRecord savedPlacements was
+        // already built from) so "what room is this position in" works for every instance
+        // uniformly -- see WyrldInstanceRecord#placements' own doc, built for Lyfe's minimap.
+        List<GeneratedDungeonRecord.SavedPlacement> savedPlacements = placements.stream()
+                .map(p -> new GeneratedDungeonRecord.SavedPlacement(p.record().name(), p.record().type(), p.rotation(),
+                        p.originForward(), p.originLateral(), p.originY()))
+                .toList();
+        WyrldInstanceRecord finalInstance = instance.withPlacements(savedPlacements);
+        com.github.cerealklla.tinywyrlds.space.WyrldSpaceData.get(server).putInstance(finalInstance);
+
+        return new GenerateResult(finalInstance, spawnPoints, dungeonId, spawnedEnemyIds);
     }
 
     /**

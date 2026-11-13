@@ -66,7 +66,7 @@ public final class WyrldManager {
 
         long gameTime = server.overworld().getGameTime();
         WyrldInstanceRecord instance = new WyrldInstanceRecord(UUID.randomUUID(), reservation.full(), reservation.inner(),
-                BASELINE_Y, WyrldState.ACTIVE, gameTime, lifecycle, java.util.List.of(), java.util.List.of());
+                BASELINE_Y, WyrldState.ACTIVE, gameTime, lifecycle, java.util.List.of(), java.util.List.of(), java.util.List.of());
         data.putInstance(instance);
         TinyWyrldsMod.LOGGER.info("Created Wyrld {} ({}x{} inner, {}x{} padded, {})", instance.id(),
                 innerWidth, innerLength, reservation.full().width(), reservation.full().length(), lifecycle);
