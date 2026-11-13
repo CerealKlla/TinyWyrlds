@@ -1600,6 +1600,24 @@ public final class OneOffGenerator {
      * this feature existed), or {@code worldPos} isn't inside any single one of them (e.g. a
      * connecting corridor cell that was never really "inside" any one room's own footprint to
      * begin with -- the caller falls back to whatever it already does for that case). */
+    /** The current Wyrld instance's own whole usable placement area ({@code innerRect}, already in
+     *  real world coordinates -- no placement lookup or local/world offset math needed at all) --
+     *  added 2026-11-13 after Lyfe's minimap special case (see {@link #resolveCurrentPiece}'s own
+     *  doc) turned out to be clipped too tightly: the user's actual complaint about "neighboring
+     *  Wyrlds" was about a completely different, unrelated generated instance bleeding through, not
+     *  about the *other* rooms/connectors within the same tunnel the player is walking through.
+     *  {@code innerRect} is exactly the boundary that distinguishes those two cases correctly --
+     *  every instance gets its own non-overlapping rect from {@link
+     *  com.github.cerealklla.tinywyrlds.space.WyrldSpaceAllocator}, so clipping to it still can't
+     *  leak a different instance's content, while no longer cutting off the rest of the player's
+     *  own tunnel. */
+    public static CurrentPieceInfo resolveCurrentInstanceBounds(WyrldInstanceRecord instance) {
+        com.github.cerealklla.tinywyrlds.space.FreeRect inner = instance.innerRect();
+        BlockPos min = new BlockPos(inner.x1(), instance.baselineY(), inner.z1());
+        BlockPos max = new BlockPos(inner.x2(), instance.baselineY(), inner.z2());
+        return new CurrentPieceInfo("(whole instance)", null, min, max);
+    }
+
     public static Optional<CurrentPieceInfo> resolveCurrentPiece(WyrldInstanceRecord instance, BlockPos worldPos) {
         if (instance.placements().isEmpty()) {
             return Optional.empty();

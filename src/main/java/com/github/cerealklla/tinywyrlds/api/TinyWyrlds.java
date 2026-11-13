@@ -301,4 +301,18 @@ public final class TinyWyrlds {
         return com.github.cerealklla.tinywyrlds.space.WyrldSpaceData.get(player.level().getServer()).getInstance(wyrldId.get())
                 .flatMap(instance -> com.github.cerealklla.tinywyrlds.wyrldprint.generate.OneOffGenerator.resolveCurrentPiece(instance, player.blockPosition()));
     }
+
+    /** The whole current Wyrld instance's own real-world bounds (every room/connector/entrance it
+     *  contains, not just whichever single one {@code player} happens to be standing in) -- added
+     *  2026-11-13, see {@code generate.OneOffGenerator#resolveCurrentInstanceBounds}'s own doc for
+     *  why this is the one Lyfe's minimap actually wants, not {@link #getCurrentPiece}.
+     *  @return empty if {@code player} isn't currently inside a Wyrld at all. */
+    public static Optional<com.github.cerealklla.tinywyrlds.wyrldprint.generate.OneOffGenerator.CurrentPieceInfo> getCurrentInstanceBounds(ServerPlayer player) {
+        Optional<UUID> wyrldId = player.getData(com.github.cerealklla.tinywyrlds.registration.ModAttachments.WYRLD_DATA).currentWyrldId();
+        if (wyrldId.isEmpty()) {
+            return Optional.empty();
+        }
+        return com.github.cerealklla.tinywyrlds.space.WyrldSpaceData.get(player.level().getServer()).getInstance(wyrldId.get())
+                .map(com.github.cerealklla.tinywyrlds.wyrldprint.generate.OneOffGenerator::resolveCurrentInstanceBounds);
+    }
 }
