@@ -11,7 +11,9 @@ import java.util.Optional;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
+import com.mojang.logging.LogUtils;
 import com.mojang.serialization.JsonOps;
+import org.slf4j.Logger;
 
 import net.neoforged.fml.loading.FMLPaths;
 
@@ -41,6 +43,7 @@ import net.neoforged.fml.loading.FMLPaths;
  *  plumbing, never meant to show up in an author-facing recipe browser. */
 public final class WyrldRecipeStorage {
 
+    private static final Logger LOGGER = LogUtils.getLogger();
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final String EXTENSION = ".json";
     private static final String TUNNEL_PREFIX = "tunnelrecipe_";
@@ -151,7 +154,18 @@ public final class WyrldRecipeStorage {
         }
         try (var stream = Files.list(root)) {
             stream.filter(p -> p.toString().endsWith(EXTENSION))
-                    .forEach(p -> load(stripExtension(p.getFileName().toString()))); // load() self-heals a tunnel recipe found here -- see its own doc.
+                    .forEach(p -> {
+                        // A genuinely authored recipe here (e.g. one saved in an older item-data
+                        // format) can fail to decode for reasons that have nothing to do with the
+                        // tunnel migration this method exists to do -- one bad file must never take
+                        // the whole server down during mod-init. load() self-heals a tunnel recipe
+                        // found here -- see its own doc.
+                        try {
+                            load(stripExtension(p.getFileName().toString()));
+                        } catch (RuntimeException e) {
+                            LOGGER.warn("Skipping {} during legacy tunnel-recipe migration scan -- failed to load", p, e);
+                        }
+                    });
         } catch (IOException e) {
             throw new RuntimeException("Failed to scan WyrldRecipe store for legacy tunnel recipes", e);
         }
