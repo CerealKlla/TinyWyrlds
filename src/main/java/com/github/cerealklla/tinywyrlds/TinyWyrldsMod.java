@@ -97,6 +97,11 @@ public class TinyWyrldsMod {
 
     private void commonSetup(FMLCommonSetupEvent event) {
         LOGGER.info("TinyWyrlds common setup");
+        // Must run before AutoModpack's own pack-generation step can possibly fire -- see
+        // WyrldRecipeStorage#migrateLegacyTunnelRecipes's own doc. Mod-init time rather than any
+        // server-lifecycle event specifically avoids racing whichever stage AutoModpack itself
+        // hooks its own "generate-modpack-on-start" behavior to.
+        com.github.cerealklla.tinywyrlds.wyrldprint.recipe.WyrldRecipeStorage.get().migrateLegacyTunnelRecipes();
     }
 
     /** No mod in this suite had ever registered anything into a creative tab before -- every

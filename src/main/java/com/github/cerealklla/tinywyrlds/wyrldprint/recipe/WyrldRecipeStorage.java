@@ -129,6 +129,34 @@ public final class WyrldRecipeStorage {
         return names;
     }
 
+    /**
+     * Proactively migrates every tunnel recipe still sitting in the legacy {@code recipes/}
+     * location into {@code generateddungeons/}, scanning the whole directory once up front rather
+     * than waiting for each one to be lazily touched by {@link #load} -- real live bug, 2026-11-16,
+     * the exact same "Captured source changed" AutoModpack symptom the {@code generateddungeons/}
+     * redirect itself was built to fix, just triggered a different way: {@code
+     * zone.NaturalSettlementTunnelPlacer}'s shared {@code NaturalSettlementShortcut} recipe still
+     * sitting in {@code recipes/} on a fresh restart got captured there by AutoModpack's own
+     * pack-generation step (which runs moments after server start, before any gameplay has
+     * happened), and then the FIRST natural-village Tunnel placed anywhere on the map lazily
+     * triggered this same recipe's self-heal migration -- moving/deleting the exact file
+     * AutoModpack was mid-transaction syncing. Called from {@code TinyWyrldsMod#commonSetup}
+     * (mod-init time, not a server-lifecycle event) specifically so it can never race AutoModpack's
+     * own pack generation, whichever server-starting-stage event that turns out to be hooked to --
+     * this runs first, unconditionally, by construction.
+     */
+    public void migrateLegacyTunnelRecipes() {
+        if (!Files.isDirectory(root)) {
+            return;
+        }
+        try (var stream = Files.list(root)) {
+            stream.filter(p -> p.toString().endsWith(EXTENSION))
+                    .forEach(p -> load(stripExtension(p.getFileName().toString()))); // load() self-heals a tunnel recipe found here -- see its own doc.
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to scan WyrldRecipe store for legacy tunnel recipes", e);
+        }
+    }
+
     private static String stripExtension(String fileName) {
         return fileName.substring(0, fileName.length() - EXTENSION.length());
     }
